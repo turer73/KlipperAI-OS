@@ -1,0 +1,148 @@
+{
+  "version": "1.0.0",
+  "boards": [
+    {
+      "name": "Creality V4.2.2",
+      "vid": "1a86",
+      "pid": "7523",
+      "mcu": "STM32F103",
+      "chip": "stm32f103xe",
+      "bootloader": "28KiB",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": ["Ender 3", "Ender 3 Pro", "CR-10"]
+    },
+    {
+      "name": "Creality V4.2.7",
+      "vid": "1a86",
+      "pid": "7523",
+      "mcu": "STM32F103",
+      "chip": "stm32f103xe",
+      "bootloader": "28KiB",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": ["Ender 3 V2", "Ender 3 S1"]
+    },
+    {
+      "name": "BTT SKR Mini E3 V3",
+      "vid": "1d50",
+      "pid": "614e",
+      "mcu": "STM32G0B1",
+      "chip": "stm32g0b1xx",
+      "bootloader": "8KiB",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": []
+    },
+    {
+      "name": "BTT SKR 3",
+      "vid": "1d50",
+      "pid": "614e",
+      "mcu": "STM32H743",
+      "chip": "stm32h743xx",
+      "bootloader": "128KiB",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": []
+    },
+    {
+      "name": "BTT Octopus V1.1",
+      "vid": "1d50",
+      "pid": "614e",
+      "mcu": "STM32F446",
+      "chip": "stm32f446xx",
+      "bootloader": "32KiB",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": ["Voron 2.4", "Voron Trident"]
+    },
+    {
+      "name": "BTT Manta M4P",
+      "vid": "1d50",
+      "pid": "614e",
+      "mcu": "STM32G0B1",
+      "chip": "stm32g0b1xx",
+      "bootloader": "8KiB",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": []
+    },
+    {
+      "name": "BTT Manta M5P",
+      "vid": "1d50",
+      "pid": "614e",
+      "mcu": "STM32G0B1",
+      "chip": "stm32g0b1xx",
+      "bootloader": "8KiB",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": []
+    },
+    {
+      "name": "BTT Manta M8P",
+      "vid": "1d50",
+      "pid": "614e",
+      "mcu": "STM32G0B1",
+      "chip": "stm32g0b1xx",
+      "bootloader": "8KiB",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": []
+    },
+    {
+      "name": "RP2040 (SKR Pico)",
+      "vid": "2e8a",
+      "pid": "0003",
+      "mcu": "RP2040",
+      "chip": "rp2040",
+      "bootloader": "none",
+      "comm": "usb",
+      "baud": 250000,
+      "printer_models": ["Voron V0"]
+    },
+    {
+      "name": "Arduino Mega 2560",
+      "vid": "2341",
+      "pid": "0042",
+      "mcu": "ATmega2560",
+      "chip": "atmega2560",
+      "bootloader": "none",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": ["RAMPS 1.4"]
+    },
+    {
+      "name": "MKS Robin Nano V3",
+      "vid": "0483",
+      "pid": "5740",
+      "mcu": "STM32F407",
+      "chip": "stm32f407xx",
+      "bootloader": "32KiB",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": []
+    },
+    {
+      "name": "Fysetc Spider V2",
+      "vid": "1d50",
+      "pid": "614e",
+      "mcu": "STM32F446",
+      "chip": "stm32f446xx",
+      "bootloader": "64KiB",
+      "comm": "serial",
+      "baud": 250000,
+      "printer_models": ["Voron 2.4"]
+    },
+    {
+      "name": "BTT EBB36/42 CAN",
+      "vid": "1d50",
+      "pid": "606f",
+      "mcu": "STM32G0B1",
+      "chip": "stm32g0b1xx",
+      "bootloader": "8KiB",
+      "comm": "canbus",
+      "baud": 1000000,
+      "printer_models": []
+    }
+  ]
+}

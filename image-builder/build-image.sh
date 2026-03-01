@@ -83,10 +83,18 @@ lb config \
 # Modern sistemlerde UEFI + GRUB yeterli. Syslinux devre disi birakildi.
 log "Bootloader: syslinux devre disi, sadece grub-efi kullaniliyor..."
 if [ -f "${BUILD_DIR}/config/binary" ]; then
-    sed -i 's/^LB_BOOTLOADERS=.*/LB_BOOTLOADERS="grub-efi"/' "${BUILD_DIR}/config/binary"
-    grep "LB_BOOTLOADERS" "${BUILD_DIR}/config/binary" || true
+    log "config/binary mevcut icerik:"
+    cat "${BUILD_DIR}/config/binary"
+    # Tum bootloader referanslarini temizle ve grub-efi yaz
+    sed -i '/LB_BOOTLOADERS/d' "${BUILD_DIR}/config/binary"
+    sed -i '/LB_BOOTLOADER=/d' "${BUILD_DIR}/config/binary"
+    echo 'LB_BOOTLOADERS="grub-efi"' >> "${BUILD_DIR}/config/binary"
+    log "config/binary guncellenmis icerik:"
+    cat "${BUILD_DIR}/config/binary"
 else
-    warn "config/binary bulunamadi, bootloader ayari yapilamadi"
+    warn "config/binary bulunamadi, olusturuluyor..."
+    mkdir -p "${BUILD_DIR}/config"
+    echo 'LB_BOOTLOADERS="grub-efi"' > "${BUILD_DIR}/config/binary"
 fi
 
 # Bookworm security repo dogru URL ile ekleniyor

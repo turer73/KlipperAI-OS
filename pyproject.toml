@@ -35,6 +35,7 @@ kos-profile = "tools.kos_profile:main"
 kos-update = "tools.kos_update:main"
 kos-backup = "tools.kos_backup:main"
 kos-mcu = "tools.kos_mcu:main"
+kos-plr = "tools.kos_plr:main"
 
 [tool.setuptools.packages.find]
 include = ["tools*", "ai_monitor*"]

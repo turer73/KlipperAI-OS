@@ -97,21 +97,35 @@ jobs:
       - name: Prepare isolinux files
         run: |
           sudo mkdir -p /root/isolinux
-          # isolinux.bin
-          if [ -f /usr/lib/ISOLINUX/isolinux.bin ]; then
-            sudo cp /usr/lib/ISOLINUX/isolinux.bin /root/isolinux/
-          fi
-          # vesamenu.c32
-          if [ -f /usr/lib/syslinux/modules/bios/vesamenu.c32 ]; then
-            sudo cp /usr/lib/syslinux/modules/bios/vesamenu.c32 /root/isolinux/
-          fi
-          # Diger gerekli c32 dosyalari
-          for f in ldlinux.c32 libcom32.c32 libutil.c32; do
-            if [ -f /usr/lib/syslinux/modules/bios/$f ]; then
-              sudo cp /usr/lib/syslinux/modules/bios/$f /root/isolinux/
+          echo "=== Isolinux/syslinux paket durumu ==="
+          dpkg -l | grep -E "isolinux|syslinux" || echo "Paketler kurulu degil!"
+          echo ""
+          echo "=== Dosya arama (find) ==="
+          for fname in isolinux.bin vesamenu.c32 ldlinux.c32 libcom32.c32 libutil.c32; do
+            FPATH=$(find /usr -name "$fname" 2>/dev/null | head -1)
+            if [ -n "$FPATH" ]; then
+              sudo cp "$FPATH" /root/isolinux/
+              echo "OK: $fname -> /root/isolinux/ (kaynak: $FPATH)"
+            else
+              echo "WARN: $fname bulunamadi!"
             fi
           done
-          ls -la /root/isolinux/ || true
+          echo ""
+          echo "=== /root/isolinux/ icerigi ==="
+          ls -la /root/isolinux/
+          echo ""
+          echo "=== Dogrulama: isolinux.bin mevcut mu? ==="
+          if [ -f /root/isolinux/isolinux.bin ]; then
+            echo "BASARILI: isolinux.bin hazir"
+            file /root/isolinux/isolinux.bin
+          else
+            echo "HATA: isolinux.bin hala bulunamadi!"
+            echo "Tum isolinux dosyalari:"
+            find /usr -name "isolinux*" 2>/dev/null || echo "Hicbir isolinux dosyasi yok"
+            echo "Tum syslinux dosyalari:"
+            find /usr -name "*.c32" 2>/dev/null || echo "Hicbir c32 dosyasi yok"
+            exit 1
+          fi
 
       # ----- Imaj olustur -----
       - name: Build ISO image

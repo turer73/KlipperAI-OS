@@ -137,6 +137,35 @@ mkdir -p "${BUILD_DIR}/config/bootloaders/grub-pc"
 cp "${SCRIPT_DIR}/config/bootloaders/grub/grub.cfg" \
     "${BUILD_DIR}/config/bootloaders/grub-pc/grub.cfg" 2>/dev/null || true
 
+# --- Isolinux / Syslinux dosyalari ---
+# live-build, BIOS boot icin isolinux.bin ve syslinux modullerini
+# /root/isolinux/ dizininde arar. Ubuntu'da bu dosyalar farkli yollarda
+# kurulu oldugu icin find ile bulup kopyaliyoruz.
+log "Isolinux/syslinux dosyalari hazirlaniyor..."
+mkdir -p /root/isolinux
+
+ISOLINUX_NEEDED=(isolinux.bin vesamenu.c32 ldlinux.c32 libcom32.c32 libutil.c32)
+ISOLINUX_FOUND=0
+
+for fname in "${ISOLINUX_NEEDED[@]}"; do
+    FPATH=$(find /usr -name "$fname" 2>/dev/null | head -1)
+    if [ -n "$FPATH" ]; then
+        cp "$FPATH" /root/isolinux/
+        log "  $fname -> /root/isolinux/ (kaynak: $FPATH)"
+        ISOLINUX_FOUND=$((ISOLINUX_FOUND + 1))
+    else
+        warn "  $fname bulunamadi!"
+    fi
+done
+
+log "Isolinux dosyalari: ${ISOLINUX_FOUND}/${#ISOLINUX_NEEDED[@]} bulundu"
+ls -la /root/isolinux/ 2>/dev/null || true
+
+if [ "$ISOLINUX_FOUND" -eq 0 ]; then
+    warn "Hicbir isolinux dosyasi bulunamadi! Kurulu paketler kontrol ediliyor..."
+    dpkg -l | grep -E "isolinux|syslinux" || true
+fi
+
 # --- BUILD ---
 log "Imaj olusturuluyor... (bu islem 15-30 dakika surebilir)"
 lb build 2>&1 | tee "${BUILD_DIR}/build.log"

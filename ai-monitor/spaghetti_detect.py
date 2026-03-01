@@ -2,7 +2,8 @@
 KlipperOS-AI — Spaghetti Detection Module
 ==========================================
 TFLite modeli ile 3D baski hatasi tespiti.
-Spaghetti (basarisiz baski), layer shift, baski tamamlanma tespiti.
+5 sinif: normal, spaghetti, no_extrusion, stringing, completed.
+Spaghetti / ekstruzyon kaybi / stringing / baski tamamlanma tespiti.
 """
 
 import logging
@@ -20,17 +21,19 @@ DEFAULT_MODEL_NAME = "spaghetti_detect.tflite"
 
 # Sinif etiketleri
 CLASS_LABELS = {
-    0: "normal",      # Normal baski
-    1: "spaghetti",   # Spaghetti / basarisiz baski
-    2: "stringing",   # Stringing / iplenmis
-    3: "completed",   # Baski tamamlandi / bos tabla
+    0: "normal",        # Normal baski
+    1: "spaghetti",     # Spaghetti / basarisiz baski
+    2: "no_extrusion",  # Akis yok / ekstruzyon durmus
+    3: "stringing",     # Stringing / iplenmis
+    4: "completed",     # Baski tamamlandi / bos tabla
 }
 
 # Tehlike esikleri
 THRESHOLDS = {
-    "spaghetti": 0.70,   # %70 guven -> duraklat
-    "stringing": 0.80,   # %80 guven -> uyar
-    "completed": 0.85,   # %85 guven -> tamamlandi bildir
+    "spaghetti": 0.70,     # %70 guven -> duraklat
+    "no_extrusion": 0.75,  # %75 guven -> duraklat
+    "stringing": 0.80,     # %80 guven -> uyar
+    "completed": 0.85,     # %85 guven -> tamamlandi bildir
 }
 
 
@@ -84,7 +87,7 @@ class SpaghettiDetector:
 
         Returns:
             {
-                "class": "normal|spaghetti|stringing|completed",
+                "class": "normal|spaghetti|no_extrusion|stringing|completed",
                 "confidence": float (0-1),
                 "action": "none|pause|notify|complete",
                 "scores": {class_name: score, ...}
@@ -140,6 +143,8 @@ class SpaghettiDetector:
         # Aksiyon belirle
         action = "none"
         if predicted_class == "spaghetti" and confidence >= self.thresholds.get("spaghetti", 0.7):
+            action = "pause"
+        elif predicted_class == "no_extrusion" and confidence >= self.thresholds.get("no_extrusion", 0.75):
             action = "pause"
         elif predicted_class == "stringing" and confidence >= self.thresholds.get("stringing", 0.8):
             action = "notify"

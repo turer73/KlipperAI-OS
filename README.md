@@ -167,6 +167,46 @@ tailscale ip -4          # Tailscale IP adresi
 Tailscale MagicDNS ile yaziciya `http://klipperos` adresiyle erisebilirsiniz.
 Port forwarding veya VPN yapilandirmasi gerekmez.
 
+## v2.1 — System Management UI & AI Config Manager
+
+### KlipperScreen Sistem Yonetim Panelleri
+
+KlipperScreen uzerinden tum sistem yonetimine dokunmatik/klavye/mouse ile erisim:
+
+| Panel | Aciklama |
+|-------|----------|
+| Ag Ayarlari | WiFi SSID tarama, baglanti, IP gosterimi |
+| Tailscale VPN | VPN durum, baglanti/kesme |
+| Guncelleme | Klipper/Moonraker/KlipperScreen/AI guncelleme |
+| Yedekleme | Config yedek olusturma ve geri yukleme |
+| MCU Yonetimi | Port tarama, kart bilgisi, firmware |
+| Sistem Bilgisi | CPU/RAM/Disk + MCU sicaklik/voltaj + CAN board |
+| AI Ayarlari | AI Monitor on/off, threshold ayarlari |
+| Servis Yonetimi | start/stop/restart tum servisler |
+| Log Goruntule | klippy/moonraker/crowsnest/AI log okuma |
+| Terminal | VTE3 tam shell erisimi |
+| Guc | Shutdown, reboot, Klipper restart |
+
+### AI Config Manager
+
+Yapay zeka, kalibrasyon sonuclarini otomatik olarak `printer.cfg` dosyasina yazar:
+
+- **PID Kalibrasyon**: Kp/Ki/Kd degerleri otomatik kaydedilir
+- **Pressure Advance**: PA test sonuclari yazilir
+- **Input Shaper**: Frekans ve tip bilgisi guncellenir
+- **FlowGuard Threshold**: Ogrenilen normal araliklar kaydedilir
+- **Guvenlik**: Her duzenleme oncesi otomatik yedek, whitelist korumalari
+
+### 2GB RAM Optimizasyonu
+
+| Katman | Teknoloji | Etki |
+|--------|-----------|------|
+| Bellek Sikistirma | zram + zstd | ~3x efektif bellek (2GB -> ~5GB) |
+| Servis Limitleri | systemd cgroups | Her servis icin MemoryMax |
+| Log Sikistirma | logrotate + zstd | Disk tasarrufu |
+| Lazy-load | Panel/model yukleme | Sadece gerektiginde bellek kullanimi |
+| earlyoom | OOM korunma | Sistem donmasi onleme |
+
 ## Proje Yapisi
 
 ```
@@ -187,7 +227,21 @@ KlipperOS-AI/
 │   ├── heater_analyzer.py        # Heater duty analizi
 │   ├── extruder_monitor.py       # TMC StallGuard izleme
 │   ├── frame_capture.py          # Kamera frame yakalama
+│   ├── config_manager.py         # AI Config Manager (printer.cfg yazici)
 │   └── models/                   # TFLite model dosyalari
+├── ks-panels/
+│   ├── kos_network.py            # Ag ayarlari paneli
+│   ├── kos_tailscale.py          # Tailscale VPN paneli
+│   ├── kos_updates.py            # Guncelleme paneli
+│   ├── kos_backup_panel.py       # Yedekleme paneli
+│   ├── kos_mcu_panel.py          # MCU yonetim paneli
+│   ├── kos_sysinfo.py            # Sistem bilgisi paneli
+│   ├── kos_ai_settings.py        # AI ayarlari paneli
+│   ├── kos_services.py           # Servis yonetim paneli
+│   ├── kos_logs.py               # Log goruntuleme paneli
+│   ├── kos_terminal.py           # Terminal paneli (VTE3)
+│   ├── kos_power.py              # Guc yonetim paneli
+│   └── kos_system_api.py         # Panel API katmani
 ├── tools/
 │   ├── kos_profile.py            # Profil yoneticisi
 │   ├── kos_update.py             # Guncelleme yoneticisi
@@ -204,7 +258,11 @@ KlipperOS-AI/
 │   ├── moonraker/                # Moonraker config
 │   ├── mainsail/                 # Nginx config
 │   ├── klipperscreen/            # KlipperScreen config
-│   └── crowsnest/                # Kamera config
+│   ├── crowsnest/                # Kamera config
+│   ├── logrotate/                # Log rotasyon config
+│   └── systemd/
+│       ├── kos-zram.service      # zram bellek sikistirma
+│       └── memory-limits/        # Servis bellek limitleri
 ├── pyproject.toml
 └── docs/
     └── plans/

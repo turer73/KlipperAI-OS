@@ -86,9 +86,9 @@ if [ -f "${BUILD_DIR}/config/binary" ]; then
     log "config/binary mevcut icerik:"
     cat "${BUILD_DIR}/config/binary"
     # Tum bootloader referanslarini temizle ve grub-efi yaz
-    sed -i '/LB_BOOTLOADERS/d' "${BUILD_DIR}/config/binary"
-    sed -i '/LB_BOOTLOADER=/d' "${BUILD_DIR}/config/binary"
-    echo 'LB_BOOTLOADERS="grub-efi"' >> "${BUILD_DIR}/config/binary"
+    # NOT: Ubuntu 24.04 live-build LB_BOOTLOADER (tekil) kullaniyor!
+    sed -i '/LB_BOOTLOADER/d' "${BUILD_DIR}/config/binary"
+    echo 'LB_BOOTLOADER="grub-efi"' >> "${BUILD_DIR}/config/binary"
     log "config/binary guncellenmis icerik:"
     cat "${BUILD_DIR}/config/binary"
 else

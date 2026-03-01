@@ -357,18 +357,29 @@ if [ -f "$OUTPUT_ISO" ] && [ -s "$OUTPUT_ISO" ]; then
     # SHA256 dosyasi olustur (orijinal ISO icin)
     echo "${ISO_SHA}  ${IMAGE_NAME}.iso" > "${OUTPUT_ISO}.sha256"
 
-    # ISO'yu xz ile sikistir (GitHub Release 2GB limiti)
-    log "ISO sikistiriliyor (xz)... Bu birkaç dakika surebilir."
-    COMPRESSED="${SCRIPT_DIR}/${IMAGE_NAME}.img.xz"
-    xz -z -T0 -3 -k "$OUTPUT_ISO" -c > "$COMPRESSED"
-    COMP_SIZE=$(du -h "$COMPRESSED" | cut -f1)
-    COMP_SHA=$(sha256sum "$COMPRESSED" | awk '{print $1}')
-    echo "${COMP_SHA}  ${IMAGE_NAME}.img.xz" > "${COMPRESSED}.sha256"
-    log "Sikistirilmis boyut: ${COMP_SIZE}"
-
-    # Sikistirilmamis .img kopya (lokal kullanim icin)
+    # .img kopya (lokal kullanim icin)
     cp "$OUTPUT_ISO" "${SCRIPT_DIR}/${IMAGE_NAME}.img"
     echo "${ISO_SHA}  ${IMAGE_NAME}.img" > "${SCRIPT_DIR}/${IMAGE_NAME}.img.sha256"
+
+    # GitHub Release 2GB limiti — dosyayi 1.9 GB parcalara bol
+    ISO_SIZE_BYTES=$(stat --printf="%s" "$OUTPUT_ISO" 2>/dev/null || stat -f%z "$OUTPUT_ISO")
+    MAX_PART_SIZE=$((1900 * 1024 * 1024))  # 1.9 GB
+    if [ "$ISO_SIZE_BYTES" -gt "$MAX_PART_SIZE" ]; then
+        log "ISO boyutu (${ISO_SIZE}) > 1.9 GB — parcalara bolunuyor..."
+        SPLIT_PREFIX="${SCRIPT_DIR}/${IMAGE_NAME}.img.part"
+        split -b 1900m "${SCRIPT_DIR}/${IMAGE_NAME}.img" "${SPLIT_PREFIX}"
+        PART_COUNT=$(ls -1 "${SPLIT_PREFIX}"* 2>/dev/null | wc -l)
+        log "ISO ${PART_COUNT} parcaya bolundu"
+        # Her parca icin SHA256
+        for part in "${SPLIT_PREFIX}"*; do
+            part_sha=$(sha256sum "$part" | awk '{print $1}')
+            part_name=$(basename "$part")
+            echo "${part_sha}  ${part_name}" >> "${SCRIPT_DIR}/${IMAGE_NAME}.img.parts.sha256"
+            log "  $(basename "$part"): $(du -h "$part" | cut -f1)"
+        done
+    else
+        log "ISO boyutu 2 GB limitinin altinda, parcalama gerekmiyor."
+    fi
 
     echo ""
     log "============================================"

@@ -6,6 +6,9 @@
 #
 # Yontem: Ubuntu Server ISO + autoinstall + KlipperOS-AI dosyalari
 #
+# Not: ISO ~3 GB oldugu icin GitHub Release 2 GB limitini asmak uzere
+# dosya 1.9 GB'lik parcalara bolunur (split).
+#
 # Tetikleme:
 #   - Manuel: Actions sekmesinden "Run workflow" ile
 #   - Tag push: v* formatinda tag push edildiginde (ornek: v2.1.0)
@@ -72,8 +75,7 @@ jobs:
           sudo apt-get install -y \
             xorriso \
             wget \
-            p7zip-full \
-            xz-utils
+            p7zip-full
 
       # ----- Build script'te versiyonu guncelle -----
       - name: Update version in build script
@@ -106,59 +108,61 @@ jobs:
         run: |
           IMAGE_NAME="${{ steps.version.outputs.image_name }}"
 
-          # --- Sikistirilmis dosya (GitHub Release icin) ---
-          COMPRESSED_PATH="image-builder/${IMAGE_NAME}.img.xz"
-          if [ ! -f "$COMPRESSED_PATH" ]; then
-            echo "::warning::Compressed file not found, trying to find and compress..."
-            # Orijinal ISO/IMG dosyasini bul
-            ORIG=""
-            for ext in .img .iso; do
-              if [ -f "image-builder/${IMAGE_NAME}${ext}" ]; then
-                ORIG="image-builder/${IMAGE_NAME}${ext}"
-                break
-              fi
-            done
-            if [ -z "$ORIG" ]; then
-              ORIG=$(find image-builder/ -maxdepth 1 \( -name "*.iso" -o -name "*.img" \) -not -name "*.sha256" -not -name "*.xz" 2>/dev/null | head -1)
-            fi
-            if [ -n "$ORIG" ]; then
-              echo "::notice::Compressing ${ORIG}..."
-              xz -z -T0 -3 -c "$ORIG" > "$COMPRESSED_PATH"
+          # --- Orijinal ISO/IMG dosyasini bul ---
+          IMG_PATH="image-builder/${IMAGE_NAME}.img"
+          if [ ! -f "$IMG_PATH" ]; then
+            ISO_PATH="image-builder/${IMAGE_NAME}.iso"
+            if [ -f "$ISO_PATH" ]; then
+              cp "$ISO_PATH" "$IMG_PATH"
             else
-              echo "::error::No image file found to compress!"
-              ls -la image-builder/
-              exit 1
+              FOUND=$(find image-builder/ -maxdepth 1 \( -name "*.iso" -o -name "*.img" \) \
+                -not -name "*.sha256" -not -name "*.part*" 2>/dev/null | head -1)
+              if [ -n "$FOUND" ]; then
+                cp "$FOUND" "$IMG_PATH"
+              else
+                echo "::error::Image file not found!"
+                ls -la image-builder/
+                exit 1
+              fi
             fi
           fi
 
-          COMP_SIZE=$(du -h "$COMPRESSED_PATH" | cut -f1)
-          COMP_SIZE_BYTES=$(stat --printf="%s" "$COMPRESSED_PATH")
-          COMP_SHA256=$(sha256sum "$COMPRESSED_PATH" | cut -d' ' -f1)
+          FILE_SIZE=$(du -h "$IMG_PATH" | cut -f1)
+          FILE_SIZE_BYTES=$(stat --printf="%s" "$IMG_PATH")
+          SHA256=$(sha256sum "$IMG_PATH" | cut -d' ' -f1)
 
-          echo "compressed_path=${COMPRESSED_PATH}" >> "$GITHUB_OUTPUT"
-          echo "compressed_size=${COMP_SIZE}" >> "$GITHUB_OUTPUT"
-          echo "compressed_size_bytes=${COMP_SIZE_BYTES}" >> "$GITHUB_OUTPUT"
-          echo "compressed_sha256=${COMP_SHA256}" >> "$GITHUB_OUTPUT"
+          echo "image_path=${IMG_PATH}" >> "$GITHUB_OUTPUT"
+          echo "file_size=${FILE_SIZE}" >> "$GITHUB_OUTPUT"
+          echo "file_size_bytes=${FILE_SIZE_BYTES}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
 
           # SHA256 checksum dosyasi
-          echo "${COMP_SHA256}  ${IMAGE_NAME}.img.xz" > "${COMPRESSED_PATH}.sha256"
+          echo "${SHA256}  ${IMAGE_NAME}.img" > "${IMG_PATH}.sha256"
 
-          # --- Orijinal ISO bilgileri (sadece bilgi amacli) ---
-          ORIG_PATH="image-builder/${IMAGE_NAME}.iso"
-          if [ ! -f "$ORIG_PATH" ]; then
-            ORIG_PATH="image-builder/${IMAGE_NAME}.img"
+          # --- Parcalari kontrol et / olustur (2 GB limit) ---
+          MAX_SIZE=$((2000 * 1024 * 1024))  # ~2 GB
+          PART_PREFIX="image-builder/${IMAGE_NAME}.img.part"
+          PART_COUNT=$(ls -1 "${PART_PREFIX}"* 2>/dev/null | wc -l)
+
+          if [ "$PART_COUNT" -eq 0 ] && [ "$FILE_SIZE_BYTES" -gt "$MAX_SIZE" ]; then
+            echo "::notice::Splitting ${FILE_SIZE} image into parts..."
+            split -b 1900m "$IMG_PATH" "${PART_PREFIX}"
+            PART_COUNT=$(ls -1 "${PART_PREFIX}"* 2>/dev/null | wc -l)
           fi
-          if [ -f "$ORIG_PATH" ]; then
-            ORIG_SIZE=$(du -h "$ORIG_PATH" | cut -f1)
-            ORIG_SHA256=$(sha256sum "$ORIG_PATH" | cut -d' ' -f1)
-            echo "original_size=${ORIG_SIZE}" >> "$GITHUB_OUTPUT"
-            echo "original_sha256=${ORIG_SHA256}" >> "$GITHUB_OUTPUT"
+
+          if [ "$PART_COUNT" -gt 0 ]; then
+            echo "split=true" >> "$GITHUB_OUTPUT"
+            echo "part_count=${PART_COUNT}" >> "$GITHUB_OUTPUT"
+            # Part bilgilerini listele
+            for part in "${PART_PREFIX}"*; do
+              echo "::notice::Part: $(basename "$part") — $(du -h "$part" | cut -f1)"
+            done
           else
-            echo "original_size=N/A" >> "$GITHUB_OUTPUT"
-            echo "original_sha256=N/A" >> "$GITHUB_OUTPUT"
+            echo "split=false" >> "$GITHUB_OUTPUT"
+            echo "part_count=0" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "::notice::Compressed: ${COMP_SIZE} (${COMP_SIZE_BYTES} bytes), SHA256: ${COMP_SHA256}"
+          echo "::notice::Image: ${FILE_SIZE}, SHA256: ${SHA256}, Parts: ${PART_COUNT}"
 
       # ----- Artifact olarak yukle (her zaman) -----
       - name: Upload build artifact
@@ -166,10 +170,11 @@ jobs:
         with:
           name: ${{ steps.version.outputs.image_name }}
           path: |
-            ${{ steps.image_info.outputs.compressed_path }}
-            ${{ steps.image_info.outputs.compressed_path }}.sha256
+            image-builder/${{ steps.version.outputs.image_name }}.img.part*
+            image-builder/${{ steps.version.outputs.image_name }}.img.sha256
           retention-days: 14
           compression-level: 0
+          if-no-files-found: error
 
       # ----- GitHub Release olustur -----
       - name: Create GitHub Release
@@ -191,20 +196,21 @@ jobs:
 
             ### 📥 Indirme
 
-            | Dosya | Boyut | SHA256 |
-            |-------|-------|--------|
-            | `${{ steps.version.outputs.image_name }}.img.xz` | ${{ steps.image_info.outputs.compressed_size }} | `${{ steps.image_info.outputs.compressed_sha256 }}` |
+            Dosya ${{ steps.image_info.outputs.part_count }} parcaya bolunmustur (GitHub 2 GB limiti).
 
-            > Orijinal ISO boyutu: ${{ steps.image_info.outputs.original_size }}
+            | Dosya | Toplam Boyut | SHA256 |
+            |-------|-------------|--------|
+            | `${{ steps.version.outputs.image_name }}.img` | ${{ steps.image_info.outputs.file_size }} | `${{ steps.image_info.outputs.sha256 }}` |
 
             ### 🔧 Kurulum
 
-            **1. Dosyayi ac:**
+            **1. Parcalari indir ve birlestir:**
             ```bash
-            # Linux / macOS
-            xz -d ${{ steps.version.outputs.image_name }}.img.xz
+            # Tum .part* dosyalarini indirdikten sonra:
+            cat ${{ steps.version.outputs.image_name }}.img.part* > ${{ steps.version.outputs.image_name }}.img
 
-            # Windows: 7-Zip ile acin
+            # Dogrulama
+            sha256sum -c ${{ steps.version.outputs.image_name }}.img.sha256
             ```
 
             **2. USB'ye yaz:**
@@ -230,14 +236,9 @@ jobs:
             - Input Shaping Assistant
             - FlowGuard filament sensoru
             - Otomatik donanim algilama ve profil onerisi
-
-            ### ✅ Dogrulama
-            ```bash
-            sha256sum -c ${{ steps.version.outputs.image_name }}.img.xz.sha256
-            ```
           files: |
-            ${{ steps.image_info.outputs.compressed_path }}
-            ${{ steps.image_info.outputs.compressed_path }}.sha256
+            image-builder/${{ steps.version.outputs.image_name }}.img.part*
+            image-builder/${{ steps.version.outputs.image_name }}.img.sha256
 
       # ----- Build ozeti -----
       - name: Build summary
@@ -248,12 +249,12 @@ jobs:
           echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Version | v${{ steps.version.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | \`${{ steps.version.outputs.image_name }}.img.xz\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.version.outputs.image_name }}.img\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Method | Ubuntu Server 24.04 ISO repackaging |" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${{ steps.image_info.outputs.compressed_size }}" ]; then
-            echo "| Compressed | ${{ steps.image_info.outputs.compressed_size }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| Original | ${{ steps.image_info.outputs.original_size }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| SHA256 | \`${{ steps.image_info.outputs.compressed_sha256 }}\` |" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.image_info.outputs.file_size }}" ]; then
+            echo "| Size | ${{ steps.image_info.outputs.file_size }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Parts | ${{ steps.image_info.outputs.part_count }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| SHA256 | \`${{ steps.image_info.outputs.sha256 }}\` |" >> $GITHUB_STEP_SUMMARY
           fi
           echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Runner | ${{ runner.os }} ${{ runner.arch }} |" >> $GITHUB_STEP_SUMMARY

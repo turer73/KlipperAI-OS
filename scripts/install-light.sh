@@ -163,6 +163,38 @@ install_mainsail() {
     fi
 }
 
+# --- jschuh/klipper-macros + KlipperOS-AI Makrolar ---
+install_klipper_macros() {
+    log "jschuh/klipper-macros kuruluyor..."
+
+    local config_dir="${KLIPPER_HOME}/printer_data/config"
+    local macros_dir="${config_dir}/klipper-macros"
+
+    if [ -d "$macros_dir" ]; then
+        log "klipper-macros zaten kurulu, guncelleniyor..."
+        cd "$macros_dir"
+        sudo -u "$KLIPPER_USER" git pull --ff-only || true
+    else
+        sudo -u "$KLIPPER_USER" git clone \
+            https://github.com/jschuh/klipper-macros.git \
+            "$macros_dir"
+    fi
+
+    # KlipperOS-AI macro genisletmelerini kopyala
+    local kos_dir
+    kos_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+    if [ -d "${kos_dir}/config/klipper" ]; then
+        cp "${kos_dir}/config/klipper/kos_plr.cfg" "${config_dir}/" 2>/dev/null || true
+        cp "${kos_dir}/config/klipper/kos_flowguard.cfg" "${config_dir}/" 2>/dev/null || true
+        cp "${kos_dir}/config/klipper/kos_rewind.cfg" "${config_dir}/" 2>/dev/null || true
+        log "KlipperOS-AI makrolari kopyalandi."
+    fi
+
+    chown -R "$KLIPPER_USER:$KLIPPER_USER" "${config_dir}"
+    log "klipper-macros kuruldu."
+}
+
 # --- Nginx Yapilandir ---
 configure_nginx() {
     log "Nginx yapilandiriliyor..."
@@ -446,6 +478,7 @@ main() {
     install_moonraker
     install_mainsail
     setup_printer_data
+    install_klipper_macros
     configure_nginx
     configure_ssh
     configure_mdns

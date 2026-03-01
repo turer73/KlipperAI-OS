@@ -219,6 +219,7 @@ RestartSec=30
 Environment=MOONRAKER_URL=http://127.0.0.1:7125
 Environment=CAMERA_URL=http://127.0.0.1:8080/?action=snapshot
 Environment=CHECK_INTERVAL=10
+Environment=FLOWGUARD_ENABLED=1
 
 [Install]
 WantedBy=multi-user.target

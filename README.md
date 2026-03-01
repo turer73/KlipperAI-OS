@@ -1,5 +1,7 @@
 # KlipperOS-AI
 
+[![Build KlipperAI-OS Image](https://github.com/turer73/KlipperAI-OS/actions/workflows/build-image.yml/badge.svg)](https://github.com/turer73/KlipperAI-OS/actions/workflows/build-image.yml)
+
 Klipper 3D printer firmware icin ozellestirilmis, AI destekli baski izleme iceren hafif Linux distrosu.
 
 ## Ozellikler
@@ -24,6 +26,26 @@ Klipper 3D printer firmware icin ozellestirilmis, AI destekli baski izleme icere
 | **LIGHT** | 512MB-1GB | Klipper + Moonraker + Mainsail + PLR + Rewind |
 | **STANDARD** | 2GB+ | + KlipperScreen + Crowsnest + AI Monitor + FlowGuard |
 | **FULL** | 4GB+ | + Multi-printer + Timelapse + Gelismis AI |
+
+## Indirme (Bootable USB Image)
+
+En son KlipperAI-OS imajini [GitHub Releases](https://github.com/turer73/KlipperAI-OS/releases/latest) sayfasindan indirin.
+
+**USB'ye yazma:**
+```bash
+# Linux / macOS
+sudo dd if=klipperai-os-x86-v2.1.0.img of=/dev/sdX bs=4M status=progress
+
+# Windows: Balena Etcher veya Rufus kullanin
+```
+
+**Ilk acilis:**
+1. USB'den boot edin (BIOS'ta USB boot onceligi ayarlayin)
+2. First Boot Wizard otomatik baslar
+3. Donanim algilama → Profil secimi → Ag → Kullanici → Disk kurulumu
+4. Profiller: **LIGHT** (512MB) | **STANDARD** (2GB+) | **FULL** (4GB+)
+
+> **Not:** Imaj x86/amd64 mimarisi icindir. Raspberry Pi / Orange Pi gibi ARM kartlar icin asagidaki script kurulumunu kullanin.
 
 ## Kurulum
 
@@ -211,6 +233,17 @@ Yapay zeka, kalibrasyon sonuclarini otomatik olarak `printer.cfg` dosyasina yaza
 
 ```
 KlipperOS-AI/
+├── .github/
+│   └── workflows/
+│       └── build-image.yml          # CI/CD: imaj build & release
+├── image-builder/
+│   ├── build-image.sh               # Debian Live Build script
+│   ├── first-boot-wizard.sh         # 8-adim whiptail TUI wizard
+│   └── config/
+│       ├── package-lists/            # Debian paket listesi
+│       ├── hooks/live/               # Build hook (user, locale)
+│       ├── includes.chroot/          # Systemd service dosyalari
+│       └── bootloaders/grub/         # GRUB menu yapilandirmasi
 ├── scripts/
 │   ├── hw-detect.sh              # Donanim algilama
 │   ├── mcu-detect.sh             # MCU kart algilama

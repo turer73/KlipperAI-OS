@@ -1,0 +1,212 @@
+# =============================================================================
+# KlipperAI-OS — Image Build & Release Workflow
+# =============================================================================
+# Debian Live Build ile bootable x86 ISO-hybrid imaj uretir ve
+# GitHub Releases'da indirilebilir olarak yayinlar.
+#
+# Tetikleme:
+#   - Manuel: Actions sekmesinden "Run workflow" ile
+#   - Tag push: v* formatinda tag push edildiginde (ornek: v2.1.0)
+# =============================================================================
+
+name: Build KlipperAI-OS Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (ornek: 2.1.0)'
+        required: false
+        default: ''
+      create_release:
+        description: 'GitHub Release olustur?'
+        required: false
+        type: boolean
+        default: true
+
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  IMAGE_BASE_NAME: klipperai-os-x86
+
+jobs:
+  build:
+    name: Build ISO Image
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      # ----- Checkout -----
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ----- Version belirleme -----
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION=$(grep -oP 'VERSION="\K[^"]+' image-builder/build-image.sh || echo "2.1.0")
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image_name=${IMAGE_BASE_NAME}-v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Building KlipperAI-OS v${VERSION}"
+
+      # ----- Bagimliliklari kur -----
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            live-build \
+            debootstrap \
+            squashfs-tools \
+            xorriso \
+            grub-efi-amd64-bin \
+            grub-pc-bin \
+            syslinux \
+            syslinux-common \
+            isolinux \
+            mtools \
+            dosfstools
+
+      # ----- Build script'te versiyonu guncelle -----
+      - name: Update version in build script
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/^VERSION=.*/VERSION=\"${VERSION}\"/" image-builder/build-image.sh
+
+      # ----- Imaj olustur -----
+      - name: Build ISO image
+        run: |
+          cd image-builder
+          sudo bash build-image.sh
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      # ----- Imaj bilgilerini topla -----
+      - name: Collect image info
+        id: image_info
+        run: |
+          IMAGE_NAME="${{ steps.version.outputs.image_name }}"
+          IMAGE_PATH="image-builder/${IMAGE_NAME}.img"
+
+          if [ ! -f "$IMAGE_PATH" ]; then
+            # live-build ciktisini kontrol et
+            FOUND=$(find image-builder/ -name "*.iso" -o -name "*.img" -o -name "*.hybrid.iso" 2>/dev/null | head -1)
+            if [ -n "$FOUND" ]; then
+              mv "$FOUND" "$IMAGE_PATH"
+            else
+              echo "::error::Image file not found!"
+              find image-builder/build/ -maxdepth 2 -type f -name "*.iso" -o -name "*.img" 2>/dev/null || true
+              exit 1
+            fi
+          fi
+
+          FILE_SIZE=$(du -h "$IMAGE_PATH" | cut -f1)
+          FILE_SIZE_BYTES=$(stat --printf="%s" "$IMAGE_PATH")
+          SHA256=$(sha256sum "$IMAGE_PATH" | cut -d' ' -f1)
+
+          echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
+          echo "file_size=${FILE_SIZE}" >> "$GITHUB_OUTPUT"
+          echo "file_size_bytes=${FILE_SIZE_BYTES}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+
+          # SHA256 checksum dosyasi olustur
+          echo "${SHA256}  ${IMAGE_NAME}.img" > "${IMAGE_PATH}.sha256"
+
+          echo "::notice::Image: ${FILE_SIZE}, SHA256: ${SHA256}"
+
+      # ----- Artifact olarak yukle (her zaman) -----
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.image_name }}
+          path: |
+            ${{ steps.image_info.outputs.image_path }}
+            ${{ steps.image_info.outputs.image_path }}.sha256
+          retention-days: 14
+          compression-level: 0
+
+      # ----- GitHub Release olustur -----
+      - name: Create GitHub Release
+        if: |
+          (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: KlipperAI-OS v${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## KlipperAI-OS v${{ steps.version.outputs.version }}
+
+            3D yazıcılar için Klipper + Moonraker + Mainsail + AI destekli komple işletim sistemi.
+
+            ### 📥 İndirme
+
+            | Dosya | Boyut | SHA256 |
+            |-------|-------|--------|
+            | `${{ steps.version.outputs.image_name }}.img` | ${{ steps.image_info.outputs.file_size }} | `${{ steps.image_info.outputs.sha256 }}` |
+
+            ### 🔧 Kurulum
+
+            **USB'ye yazma:**
+            ```bash
+            # Linux / macOS
+            sudo dd if=${{ steps.version.outputs.image_name }}.img of=/dev/sdX bs=4M status=progress
+
+            # Veya Balena Etcher / Rufus kullanin
+            ```
+
+            **İlk açılış:**
+            1. USB'den boot edin
+            2. First Boot Wizard otomatik başlar
+            3. Donanım algılama → Profil seçimi → Ağ → Kullanıcı → Disk kurulumu
+            4. Profiller: **LIGHT** (512MB RAM) | **STANDARD** (2GB+) | **FULL** (4GB+)
+
+            ### 📦 İçerik
+            - Klipper + Moonraker + Mainsail (web UI)
+            - KlipperScreen (dokunmatik ekran)
+            - Crowsnest (kamera streaming)
+            - AI Print Monitor (yapay zeka baskı izleme)
+            - Input Shaping Assistant
+            - FlowGuard filament sensörü
+            - Otomatik donanım algılama ve profil önerisi
+
+            ### ✅ Doğrulama
+            ```bash
+            sha256sum -c ${{ steps.version.outputs.image_name }}.img.sha256
+            ```
+          files: |
+            ${{ steps.image_info.outputs.image_path }}
+            ${{ steps.image_info.outputs.image_path }}.sha256
+
+      # ----- Build ozeti -----
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## 🏗️ Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | v${{ steps.version.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.version.outputs.image_name }}.img\` |" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.image_info.outputs.file_size }}" ]; then
+            echo "| Size | ${{ steps.image_info.outputs.file_size }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| SHA256 | \`${{ steps.image_info.outputs.sha256 }}\` |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Runner | ${{ runner.os }} ${{ runner.arch }} |" >> $GITHUB_STEP_SUMMARY

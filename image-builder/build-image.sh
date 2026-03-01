@@ -63,14 +63,10 @@ lb config \
     --parent-archive-areas "main contrib non-free non-free-firmware" \
     --parent-mirror-bootstrap "http://deb.debian.org/debian" \
     --parent-mirror-chroot "http://deb.debian.org/debian" \
-    --parent-mirror-chroot-security "http://deb.debian.org/debian-security" \
     --parent-mirror-binary "http://deb.debian.org/debian" \
-    --parent-mirror-binary-security "http://deb.debian.org/debian-security" \
     --mirror-bootstrap "http://deb.debian.org/debian" \
     --mirror-chroot "http://deb.debian.org/debian" \
-    --mirror-chroot-security "http://deb.debian.org/debian-security" \
     --mirror-binary "http://deb.debian.org/debian" \
-    --mirror-binary-security "http://deb.debian.org/debian-security" \
     --architectures amd64 \
     --binary-images iso-hybrid \
     --debian-installer none \
@@ -78,8 +74,18 @@ lb config \
     --iso-application "KlipperAI-OS" \
     --iso-volume "KlipperAI-OS v${VERSION}" \
     --apt-recommends false \
-    --security true \
+    --security false \
+    --updates false \
+    --backports false \
     --cache true
+
+# Bookworm security repo dogru URL ile ekleniyor
+# (live-build eski bookworm/updates formatini kullaniyor, dogru format bookworm-security)
+mkdir -p "${BUILD_DIR}/config/archives"
+echo "deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware" \
+    > "${BUILD_DIR}/config/archives/security.list.chroot"
+echo "deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware" \
+    > "${BUILD_DIR}/config/archives/updates.list.chroot"
 
 # --- Paket listesi kopyala ---
 log "Paket listesi kopyalaniyor..."

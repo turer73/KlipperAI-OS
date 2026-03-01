@@ -69,8 +69,7 @@ lb config \
     --mirror-binary "http://deb.debian.org/debian" \
     --architectures amd64 \
     --binary-images iso-hybrid \
-    --linux-packages "linux-image linux-headers" \
-    --linux-flavours "amd64" \
+    --linux-packages none \
     --debian-installer none \
     --memtest none \
     --iso-application "KlipperAI-OS" \

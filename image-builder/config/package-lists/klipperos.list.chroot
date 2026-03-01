@@ -2,6 +2,11 @@
 # KlipperAI-OS — Paket Listesi (Debian Bookworm amd64)
 # =============================================================================
 
+# --- Kernel ---
+linux-image-amd64
+live-boot
+systemd-sysv
+
 # --- Temel Sistem ---
 sudo
 openssh-server

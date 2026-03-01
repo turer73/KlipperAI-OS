@@ -93,6 +93,8 @@ jobs:
         run: |
           cd image-builder
           sudo -E bash build-image.sh
+          # Build root olarak calisti — dosya izinlerini duzelt
+          sudo chown -R runner:runner . || true
         env:
           DEBIAN_FRONTEND: noninteractive
           SKIP_SHA_CHECK: ${{ steps.cache-iso.outputs.cache-hit == 'true' && '1' || '0' }}
@@ -104,21 +106,23 @@ jobs:
           IMAGE_NAME="${{ steps.version.outputs.image_name }}"
           IMAGE_PATH="image-builder/${IMAGE_NAME}.img"
 
+          # build-image.sh hem .iso hem .img olusturur
+          # .img yoksa .iso'yu kontrol et ve kopyala
           if [ ! -f "$IMAGE_PATH" ]; then
-            # Alternatif uzantilar
-            for ext in iso img; do
-              FOUND=$(find image-builder/ -maxdepth 1 -name "*.${ext}" 2>/dev/null | head -1)
+            ISO_PATH="image-builder/${IMAGE_NAME}.iso"
+            if [ -f "$ISO_PATH" ]; then
+              cp "$ISO_PATH" "$IMAGE_PATH"
+            else
+              # Alternatif uzantilarla ara
+              FOUND=$(find image-builder/ -maxdepth 1 \( -name "*.iso" -o -name "*.img" \) -not -name "*.sha256" 2>/dev/null | head -1)
               if [ -n "$FOUND" ]; then
-                mv "$FOUND" "$IMAGE_PATH"
-                break
+                cp "$FOUND" "$IMAGE_PATH"
+              else
+                echo "::error::Image file not found!"
+                ls -la image-builder/
+                exit 1
               fi
-            done
-          fi
-
-          if [ ! -f "$IMAGE_PATH" ]; then
-            echo "::error::Image file not found!"
-            ls -la image-builder/
-            exit 1
+            fi
           fi
 
           FILE_SIZE=$(du -h "$IMAGE_PATH" | cut -f1)

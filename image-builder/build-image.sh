@@ -105,10 +105,13 @@ echo "deb http://deb.debian.org/debian-security bookworm-security main contrib n
 echo "deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware" \
     > "${BUILD_DIR}/config/archives/updates.list.chroot"
 
-# --- Paket listesi kopyala ---
-log "Paket listesi kopyalaniyor..."
+# --- Paket listesi kopyala (sadece minimal — hizli build) ---
+log "Minimal paket listesi kopyalaniyor..."
 cp "${SCRIPT_DIR}/config/package-lists/klipperos.list.chroot" \
     "${BUILD_DIR}/config/package-lists/"
+
+# Ertelenmis paket listesi proje dosyalariyla birlikte ISO'ya eklenir
+# (wizard tarafindan okunup kurulacak)
 
 # --- includes.chroot: proje dosyalarini kopyala ---
 log "Proje dosyalari kopyalaniyor..."
@@ -121,6 +124,11 @@ for dir in scripts ai-monitor config tools ks-panels data; do
         cp -r "${PROJECT_ROOT}/${dir}" "${CHROOT}/opt/klipperos-ai/"
     fi
 done
+
+# Ertelenmis paket listesini wizard'in okuyabilecegi yere kopyala
+mkdir -p "${CHROOT}/opt/klipperos-ai/config/package-lists"
+cp "${SCRIPT_DIR}/config/package-lists/klipperos-deferred.list" \
+    "${CHROOT}/opt/klipperos-ai/config/package-lists/" 2>/dev/null || true
 
 # pyproject.toml ve README
 cp "${PROJECT_ROOT}/pyproject.toml" "${CHROOT}/opt/klipperos-ai/" 2>/dev/null || true
@@ -157,7 +165,9 @@ cp "${SCRIPT_DIR}/config/bootloaders/grub/grub.cfg" \
     "${BUILD_DIR}/config/bootloaders/grub-pc/grub.cfg" 2>/dev/null || true
 
 # --- BUILD ---
-log "Imaj olusturuluyor... (bu islem 15-30 dakika surebilir)"
+log "Minimal imaj olusturuluyor... (iki asamali build — ~10-20 dk)"
+log "  ISO: minimal paketler (kernel + ag + wizard)"
+log "  First-boot: agir paketler wizard tarafindan kurulacak"
 lb build 2>&1 | tee "${BUILD_DIR}/build.log"
 
 # --- Cikti ---

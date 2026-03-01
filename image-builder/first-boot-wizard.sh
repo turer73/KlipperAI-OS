@@ -34,6 +34,7 @@ BACKTITLE="KlipperAI-OS v${VERSION} Kurulum Sihirbazi"
 LOG_FILE="/var/log/klipperai-wizard.log"
 KLIPPER_HOME="/home/klipper"
 INSTALL_DIR="/opt/klipperos-ai"
+DEFERRED_LIST="${INSTALL_DIR}/config/package-lists/klipperos-deferred.list"
 
 log() { echo "[$(date '+%H:%M:%S')] $*" >> "$LOG_FILE"; }
 
@@ -58,7 +59,8 @@ step_welcome() {
   2. Kurulum profili secimi
   3. Ag ayarlari
   4. Diske kurulum (istege bagli)
-  5. Yazilim kurulumu
+  5. Sistem paketleri kurulumu
+  6. Yazilim kurulumu
 
   Devam etmek icin OK'a basin." \
         20 60
@@ -395,7 +397,88 @@ FSTAB
 }
 
 # ===================================================================
-# Adim 7: Profil Kurulumu
+# Adim 7: Ertelenmis Paket Kurulumu
+# ===================================================================
+step_install_deferred_packages() {
+    # Internet kontrolu
+    if ! ping -c 1 -W 3 1.1.1.1 &>/dev/null; then
+        whiptail --backtitle "$BACKTITLE" \
+            --title "Internet Baglantisi Yok" \
+            --msgbox "Sistem paketleri icin internet gerekli.\nEthernet baglayip tekrar deneyin.\n\nSistem yeniden baslatildiginda wizard tekrar calisacak." \
+            10 55
+        log "Paket kurulumu iptal — internet yok"
+        touch /opt/klipperos-ai/.first-boot
+        return 1
+    fi
+
+    # Ertelenmis paket listesi var mi?
+    if [ ! -f "$DEFERRED_LIST" ]; then
+        log "Ertelenmis paket listesi bulunamadi: ${DEFERRED_LIST}"
+        log "Tum paketler zaten ISO'da — atlaniyor."
+        return 0
+    fi
+
+    # Paket listesini oku (yorum ve bos satirlari filtrele)
+    local packages
+    packages=$(grep -v '^#' "$DEFERRED_LIST" | grep -v '^$' | tr '\n' ' ')
+    local pkg_count
+    pkg_count=$(echo "$packages" | wc -w)
+
+    if [ "$pkg_count" -eq 0 ]; then
+        log "Ertelenmis paket listesi bos — atlaniyor."
+        return 0
+    fi
+
+    whiptail --backtitle "$BACKTITLE" \
+        --title "Sistem Paketleri Kuruluyor" \
+        --msgbox "\
+  ${pkg_count} adet sistem paketi indiriliyor ve kuruluyor.
+
+  Bu islem internet hiziniza bagli olarak
+  10-30 dakika surebilir.
+
+  Paketler: Build tools, X11, GTK, ARM compiler,
+  firmware araclari, web server vb.
+
+  Lutfen bekleyin ve sistemi kapatmayin." \
+        14 55
+
+    log "Ertelenmis paket kurulumu basliyor (${pkg_count} paket)..."
+
+    # APT guncelle
+    apt-get update >> "$LOG_FILE" 2>&1
+
+    # Paketleri kur (gauge ile ilerleme)
+    {
+        local installed=0
+        local percent=0
+
+        # Toplu kurulum (tek apt-get — daha hizli ve guvenilir)
+        echo "5"; echo "# apt-get update tamamlandi..."
+        echo "10"; echo "# ${pkg_count} paket kuruluyor..."
+
+        if DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            $packages >> "$LOG_FILE" 2>&1; then
+            echo "95"; echo "# Paketler basariyla kuruldu!"
+            log "Ertelenmis paketler basariyla kuruldu"
+        else
+            echo "95"; echo "# UYARI: Bazi paketler kurulamadi!"
+            log "HATA: Bazi ertelenmis paketler kurulamadi"
+        fi
+
+        echo "100"; echo "# Tamamlandi!"
+    } | whiptail --backtitle "$BACKTITLE" \
+        --title "Paket Kurulumu" \
+        --gauge "Sistem paketleri kuruluyor..." \
+        8 60 0
+
+    # Sentinel: ertelenmis paketler kuruldu
+    touch /opt/klipperos-ai/.deferred-packages-installed
+    log "Ertelenmis paket kurulumu tamamlandi"
+}
+
+# ===================================================================
+# Adim 8: Profil Kurulumu
 # ===================================================================
 step_install_profile() {
     # Internet kontrolu
@@ -446,7 +529,7 @@ step_install_profile() {
 }
 
 # ===================================================================
-# Adim 8: Tamamlandi
+# Adim 9: Tamamlandi
 # ===================================================================
 step_complete() {
     local ip_addr
@@ -485,8 +568,12 @@ main() {
     step_network
     step_user_settings
     step_disk_install
+    step_install_deferred_packages || {
+        log "Ertelenmis paket kurulumu basarisiz. Wizard sonlandirildi."
+        exit 1
+    }
     step_install_profile || {
-        log "Kurulum basarisiz. Wizard sonlandirildi."
+        log "Profil kurulumu basarisiz. Wizard sonlandirildi."
         exit 1
     }
     step_complete

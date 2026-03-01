@@ -71,7 +71,7 @@ if [ -f "${BUILD_DIR}/${UBUNTU_ISO_FILE}" ]; then
 else
     log "Ubuntu Server ${UBUNTU_VERSION} ISO indiriliyor..."
     log "URL: ${UBUNTU_ISO_URL}"
-    wget -q --show-progress -O "${BUILD_DIR}/${UBUNTU_ISO_FILE}" "$UBUNTU_ISO_URL"
+    wget --progress=dot:mega -O "${BUILD_DIR}/${UBUNTU_ISO_FILE}" "$UBUNTU_ISO_URL"
     log "ISO indirildi: $(du -h "${BUILD_DIR}/${UBUNTU_ISO_FILE}" | cut -f1)"
 fi
 

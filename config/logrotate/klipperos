@@ -1,0 +1,27 @@
+/home/klipper/printer_data/logs/*.log {
+    daily
+    rotate 3
+    maxsize 10M
+    copytruncate
+    missingok
+    notifempty
+    compress
+    compresscmd /usr/bin/zstd
+    compressext .zst
+    uncompresscmd /usr/bin/unzstd
+    compressoptions -T0
+}
+
+/var/log/klipperos-*.log {
+    daily
+    rotate 3
+    maxsize 5M
+    copytruncate
+    missingok
+    notifempty
+    compress
+    compresscmd /usr/bin/zstd
+    compressext .zst
+    uncompresscmd /usr/bin/unzstd
+    compressoptions -T0
+}

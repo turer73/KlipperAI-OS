@@ -138,40 +138,43 @@ cp "${SCRIPT_DIR}/config/bootloaders/grub/grub.cfg" \
     "${BUILD_DIR}/config/bootloaders/grub-pc/grub.cfg" 2>/dev/null || true
 
 # --- Isolinux / Syslinux dosyalari ---
-# live-build, BIOS boot icin isolinux.bin ve syslinux modullerini
-# /root/isolinux/ dizininde arar. Ubuntu'da bu dosyalar farkli yollarda
-# kurulu oldugu icin find ile bulup kopyaliyoruz.
+# live-build'in lb_binary_syslinux asamasi, syslinux kurulumunu chroot
+# ICINDE yapar ve /root/isolinux/ dizinini CHROOT icinde arar.
+# Bu yuzden dosyalari hem host /root/isolinux/ hem de
+# config/includes.chroot/root/isolinux/ altina kopyaliyoruz.
 # ONEMLI: c32 modulleri BIOS versiyonu olmali (efi64 degil)!
 log "Isolinux/syslinux dosyalari hazirlaniyor..."
 mkdir -p /root/isolinux
+mkdir -p "${CHROOT}/root/isolinux"
 
-# isolinux.bin
-ISOLINUX_BIN=$(find /usr -name "isolinux.bin" 2>/dev/null | head -1)
-if [ -n "$ISOLINUX_BIN" ]; then
-    cp "$ISOLINUX_BIN" /root/isolinux/
-    log "  isolinux.bin (kaynak: $ISOLINUX_BIN)"
-else
-    warn "  isolinux.bin bulunamadi!"
-fi
-
-# c32 modulleri - BIOS versiyonlari oncelikli
-for fname in vesamenu.c32 ldlinux.c32 libcom32.c32 libutil.c32; do
-    # Once bios dizininde ara
-    FPATH=$(find /usr/lib/syslinux/modules/bios -name "$fname" 2>/dev/null | head -1)
-    # Bulunamazsa genel bios arama
-    [ -z "$FPATH" ] && FPATH=$(find /usr -path "*/bios/*" -name "$fname" 2>/dev/null | head -1)
-    # Son cari: herhangi bir versiyon
-    [ -z "$FPATH" ] && FPATH=$(find /usr -name "$fname" 2>/dev/null | head -1)
-    if [ -n "$FPATH" ]; then
-        cp "$FPATH" /root/isolinux/
-        log "  $fname (kaynak: $FPATH)"
+_copy_isolinux() {
+    local fname="$1"
+    local fpath=""
+    # Once bios dizininde ara (isolinux = BIOS bootloader)
+    fpath=$(find /usr/lib/syslinux/modules/bios -name "$fname" 2>/dev/null | head -1)
+    [ -z "$fpath" ] && fpath=$(find /usr -path "*/bios/*" -name "$fname" 2>/dev/null | head -1)
+    [ -z "$fpath" ] && fpath=$(find /usr -name "$fname" 2>/dev/null | head -1)
+    if [ -n "$fpath" ]; then
+        cp "$fpath" /root/isolinux/
+        cp "$fpath" "${CHROOT}/root/isolinux/"
+        log "  $fname (kaynak: $fpath)"
+        return 0
     else
         warn "  $fname bulunamadi!"
+        return 1
     fi
-done
+}
 
-log "Isolinux dizin icerigi:"
+_copy_isolinux isolinux.bin
+_copy_isolinux vesamenu.c32
+_copy_isolinux ldlinux.c32
+_copy_isolinux libcom32.c32
+_copy_isolinux libutil.c32
+
+log "Host /root/isolinux/:"
 ls -la /root/isolinux/ 2>/dev/null || true
+log "Chroot /root/isolinux/:"
+ls -la "${CHROOT}/root/isolinux/" 2>/dev/null || true
 
 # --- BUILD ---
 log "Imaj olusturuluyor... (bu islem 15-30 dakika surebilir)"

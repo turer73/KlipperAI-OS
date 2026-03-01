@@ -75,8 +75,6 @@ lb config \
     --iso-volume "KlipperAI-OS v${VERSION}" \
     --apt-recommends false \
     --security false \
-    --updates false \
-    --backports false \
     --cache true
 
 # Bookworm security repo dogru URL ile ekleniyor

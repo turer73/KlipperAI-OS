@@ -36,6 +36,7 @@ kos-update = "tools.kos_update:main"
 kos-backup = "tools.kos_backup:main"
 kos-mcu = "tools.kos_mcu:main"
 kos-plr = "tools.kos_plr:main"
+kos-rewind = "tools.kos_rewind:main"
 
 [tool.setuptools.packages.find]
 include = ["tools*", "ai_monitor*"]

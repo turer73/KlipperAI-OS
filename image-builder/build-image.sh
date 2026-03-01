@@ -56,16 +56,19 @@ fi
 log "Debian Live Build yapilandiriliyor..."
 lb config \
     --distribution bookworm \
+    --parent-distribution bookworm \
+    --parent-mirror-bootstrap "http://deb.debian.org/debian" \
+    --parent-mirror-chroot-security "http://deb.debian.org/debian-security" \
+    --mirror-bootstrap "http://deb.debian.org/debian" \
+    --mirror-chroot-security "http://deb.debian.org/debian-security" \
     --architectures amd64 \
     --binary-images iso-hybrid \
-    --bootloaders "grub-efi,syslinux" \
     --debian-installer none \
     --memtest none \
     --iso-application "KlipperAI-OS" \
     --iso-volume "KlipperAI-OS v${VERSION}" \
     --apt-recommends false \
     --security true \
-    --updates true \
     --cache true
 
 # --- Paket listesi kopyala ---

@@ -37,7 +37,7 @@ env:
 jobs:
   build:
     name: Build ISO Image
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     steps:
@@ -86,13 +86,20 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           sed -i "s/^VERSION=.*/VERSION=\"${VERSION}\"/" image-builder/build-image.sh
 
+      # ----- Live-build versiyon kontrolu -----
+      - name: Check live-build version
+        run: |
+          lb --version || true
+          debootstrap --version || true
+
       # ----- Imaj olustur -----
       - name: Build ISO image
         run: |
           cd image-builder
-          sudo bash build-image.sh
+          sudo -E bash build-image.sh
         env:
           DEBIAN_FRONTEND: noninteractive
+          LB_DISTRIBUTION: bookworm
 
       # ----- Imaj bilgilerini topla -----
       - name: Collect image info

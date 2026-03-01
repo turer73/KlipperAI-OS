@@ -59,7 +59,7 @@ jobs:
             VERSION="${{ github.ref_name }}"
             VERSION="${VERSION#v}"
           else
-            VERSION=$(grep -oP 'VERSION="\K[^"]+' image-builder/build-image.sh || echo "2.1.0")
+            VERSION=$(grep -oP '^VERSION="\K[^"]+' image-builder/build-image.sh || echo "2.1.0")
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "image_name=${IMAGE_BASE_NAME}-v${VERSION}" >> "$GITHUB_OUTPUT"

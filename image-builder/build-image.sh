@@ -71,7 +71,6 @@ lb config \
     --mirror-chroot-security "http://deb.debian.org/debian-security" \
     --mirror-binary "http://deb.debian.org/debian" \
     --mirror-binary-security "http://deb.debian.org/debian-security" \
-    --debootstrap-options "--no-check-gpg" \
     --architectures amd64 \
     --binary-images iso-hybrid \
     --debian-installer none \

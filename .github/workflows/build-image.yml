@@ -93,39 +93,14 @@ jobs:
           lb --version || true
           debootstrap --version || true
 
-      # ----- Live-build syslinux debug + isolinux hazirlik -----
-      - name: Prepare bootloader files
+      # ----- Bootloader bilgi -----
+      - name: Verify bootloader packages
         run: |
-          echo "=== live-build binary_syslinux kaynak kodu ==="
-          echo "--- /root/isolinux referanslari ---"
-          sudo grep -rn "root/isolinux" /usr/lib/live/build/ 2>/dev/null || echo "Bulunamadi /usr/lib/live"
-          sudo grep -rn "root/isolinux" /usr/share/live/build/ 2>/dev/null || echo "Bulunamadi /usr/share/live"
+          echo "=== GRUB-EFI bootloader kullaniliyor (syslinux devre disi) ==="
+          dpkg -l | grep -E "grub-efi|grub-pc" || echo "GRUB paketleri henuz kurulmadi (chroot icinde kurulacak)"
           echo ""
-          echo "--- binary_syslinux dosya icerigi (ozet) ---"
-          SYSLINUX_SCRIPT=$(find /usr/lib/live /usr/share/live -name "binary_syslinux" 2>/dev/null | head -1)
-          if [ -n "$SYSLINUX_SCRIPT" ]; then
-            echo "Script: $SYSLINUX_SCRIPT"
-            sudo head -100 "$SYSLINUX_SCRIPT"
-          else
-            echo "binary_syslinux script bulunamadi"
-          fi
-          echo ""
-
-          # Isolinux dosyalarini hazirla (host + chroot icin)
-          sudo mkdir -p /root/isolinux
-          for fname in isolinux.bin vesamenu.c32 ldlinux.c32 libcom32.c32 libutil.c32; do
-            FPATH=$(find /usr/lib/syslinux/modules/bios -name "$fname" 2>/dev/null | head -1)
-            [ -z "$FPATH" ] && FPATH=$(find /usr -path "*/bios/*" -name "$fname" 2>/dev/null | head -1)
-            [ -z "$FPATH" ] && FPATH=$(find /usr -name "$fname" 2>/dev/null | head -1)
-            if [ -n "$FPATH" ]; then
-              sudo cp "$FPATH" /root/isolinux/
-              echo "OK: $fname (kaynak: $FPATH)"
-            else
-              echo "WARN: $fname bulunamadi"
-            fi
-          done
-          echo "=== /root/isolinux/ ==="
-          sudo ls -la /root/isolinux/
+          echo "=== live-build versiyon ==="
+          lb --version || true
 
       # ----- Imaj olustur -----
       - name: Build ISO image

@@ -78,6 +78,17 @@ lb config \
     --security false \
     --cache true
 
+# Syslinux/isolinux sorunlu: Ubuntu runner'da live-build binary_syslinux
+# asamasi /root/isolinux/ dizinini chroot icinde ariyor ama bulamiyor.
+# Modern sistemlerde UEFI + GRUB yeterli. Syslinux devre disi birakildi.
+log "Bootloader: syslinux devre disi, sadece grub-efi kullaniliyor..."
+if [ -f "${BUILD_DIR}/config/binary" ]; then
+    sed -i 's/^LB_BOOTLOADERS=.*/LB_BOOTLOADERS="grub-efi"/' "${BUILD_DIR}/config/binary"
+    grep "LB_BOOTLOADERS" "${BUILD_DIR}/config/binary" || true
+else
+    warn "config/binary bulunamadi, bootloader ayari yapilamadi"
+fi
+
 # Bookworm security repo dogru URL ile ekleniyor
 # (live-build eski bookworm/updates formatini kullaniyor, dogru format bookworm-security)
 mkdir -p "${BUILD_DIR}/config/archives"
@@ -136,45 +147,6 @@ log "GRUB yapilandirmasi kopyalaniyor..."
 mkdir -p "${BUILD_DIR}/config/bootloaders/grub-pc"
 cp "${SCRIPT_DIR}/config/bootloaders/grub/grub.cfg" \
     "${BUILD_DIR}/config/bootloaders/grub-pc/grub.cfg" 2>/dev/null || true
-
-# --- Isolinux / Syslinux dosyalari ---
-# live-build'in lb_binary_syslinux asamasi, syslinux kurulumunu chroot
-# ICINDE yapar ve /root/isolinux/ dizinini CHROOT icinde arar.
-# Bu yuzden dosyalari hem host /root/isolinux/ hem de
-# config/includes.chroot/root/isolinux/ altina kopyaliyoruz.
-# ONEMLI: c32 modulleri BIOS versiyonu olmali (efi64 degil)!
-log "Isolinux/syslinux dosyalari hazirlaniyor..."
-mkdir -p /root/isolinux
-mkdir -p "${CHROOT}/root/isolinux"
-
-_copy_isolinux() {
-    local fname="$1"
-    local fpath=""
-    # Once bios dizininde ara (isolinux = BIOS bootloader)
-    fpath=$(find /usr/lib/syslinux/modules/bios -name "$fname" 2>/dev/null | head -1)
-    [ -z "$fpath" ] && fpath=$(find /usr -path "*/bios/*" -name "$fname" 2>/dev/null | head -1)
-    [ -z "$fpath" ] && fpath=$(find /usr -name "$fname" 2>/dev/null | head -1)
-    if [ -n "$fpath" ]; then
-        cp "$fpath" /root/isolinux/
-        cp "$fpath" "${CHROOT}/root/isolinux/"
-        log "  $fname (kaynak: $fpath)"
-        return 0
-    else
-        warn "  $fname bulunamadi!"
-        return 1
-    fi
-}
-
-_copy_isolinux isolinux.bin
-_copy_isolinux vesamenu.c32
-_copy_isolinux ldlinux.c32
-_copy_isolinux libcom32.c32
-_copy_isolinux libutil.c32
-
-log "Host /root/isolinux/:"
-ls -la /root/isolinux/ 2>/dev/null || true
-log "Chroot /root/isolinux/:"
-ls -la "${CHROOT}/root/isolinux/" 2>/dev/null || true
 
 # --- BUILD ---
 log "Imaj olusturuluyor... (bu islem 15-30 dakika surebilir)"

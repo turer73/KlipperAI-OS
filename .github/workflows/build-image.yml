@@ -38,7 +38,7 @@ jobs:
   build:
     name: Build ISO Image
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 180
 
     steps:
       # ----- Checkout -----

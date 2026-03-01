@@ -164,6 +164,21 @@ mkdir -p "${BUILD_DIR}/config/bootloaders/grub-pc"
 cp "${SCRIPT_DIR}/config/bootloaders/grub/grub.cfg" \
     "${BUILD_DIR}/config/bootloaders/grub-pc/grub.cfg" 2>/dev/null || true
 
+# --- isohybrid workaround ---
+# Ubuntu 24.04'te syslinux-utils paketi isohybrid komutunu icermiyor.
+# live-build ISO olusturma sonrasinda isohybrid cagiriyor ve bulamazsa hata veriyor.
+# Cozum: no-op isohybrid wrapper olustur, sonra xorriso ile hybrid yap.
+if ! command -v isohybrid &>/dev/null; then
+    log "isohybrid bulunamadi — no-op wrapper olusturuluyor..."
+    cat > /usr/local/bin/isohybrid << 'WRAPPER'
+#!/bin/sh
+# No-op wrapper: isohybrid islemi xorriso ile lb build sonrasi yapilacak
+echo "isohybrid: skipped (will use xorriso instead)"
+exit 0
+WRAPPER
+    chmod +x /usr/local/bin/isohybrid
+fi
+
 # --- BUILD ---
 log "Minimal imaj olusturuluyor... (iki asamali build — ~10-20 dk)"
 log "  ISO: minimal paketler (kernel + ag + wizard)"

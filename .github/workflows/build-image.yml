@@ -76,8 +76,7 @@ jobs:
             grub-efi-amd64-bin \
             grub-pc-bin \
             mtools \
-            dosfstools \
-            syslinux-utils
+            dosfstools
 
       # ----- Build script'te versiyonu guncelle -----
       - name: Update version in build script

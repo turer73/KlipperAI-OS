@@ -1,11 +1,20 @@
 #!/bin/bash
 # =============================================================================
-# KlipperAI-OS — Image Builder
+# KlipperAI-OS — Image Builder (Ubuntu Server ISO Repackaging)
 # =============================================================================
-# Debian Live Build ile x86/PC bootable USB imaji uretir.
+# Ubuntu Server 24.04 LTS ISO'sunu indirir, autoinstall config ve
+# KlipperOS-AI dosyalarini ekleyerek ozel bir kurulum ISO'su olusturur.
+#
+# Yontem:
+#   1. Ubuntu Server 24.04 ISO indir (veya cache'den kullan)
+#   2. ISO'yu xorriso ile ac
+#   3. autoinstall/ dizinini ekle (user-data, meta-data)
+#   4. KlipperOS-AI proje dosyalarini /klipperos-ai/ olarak ekle
+#   5. GRUB config'e autoinstall parametresini ekle
+#   6. xorriso ile yeniden paketle
 #
 # Gereksinimler:
-#   sudo apt-get install live-build
+#   sudo apt-get install xorriso p7zip-full wget
 #
 # Kullanim:
 #   sudo ./build-image.sh
@@ -18,6 +27,12 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="${SCRIPT_DIR}/build"
 VERSION="2.1.0"
 IMAGE_NAME="klipperai-os-x86-v${VERSION}"
+
+# Ubuntu Server ISO bilgileri
+UBUNTU_VERSION="24.04.2"
+UBUNTU_ISO_URL="https://releases.ubuntu.com/${UBUNTU_VERSION}/ubuntu-${UBUNTU_VERSION}-live-server-amd64.iso"
+UBUNTU_ISO_FILE="ubuntu-${UBUNTU_VERSION}-live-server-amd64.iso"
+UBUNTU_ISO_SHA_URL="https://releases.ubuntu.com/${UBUNTU_VERSION}/SHA256SUMS"
 
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
@@ -35,186 +50,261 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-# --- live-build kontrolu ---
-if ! command -v lb &>/dev/null; then
-    err "live-build kurulu degil. Kuruluyor..."
-    apt-get update && apt-get install -y live-build
-fi
+# --- Gerekli araclari kontrol et ---
+for cmd in xorriso wget; do
+    if ! command -v "$cmd" &>/dev/null; then
+        err "${cmd} kurulu degil. Kuruluyor..."
+        apt-get update && apt-get install -y "$cmd"
+    fi
+done
 
-# --- Temiz baslangic ---
+# --- Build dizini hazirla ---
 log "Build dizini hazirlaniyor: ${BUILD_DIR}"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-# Onceki build varsa temizle
-if [ -d ".build" ] || [ -f "live-image-amd64.hybrid.iso" ]; then
-    log "Onceki build temizleniyor..."
-    lb clean --purge 2>/dev/null || true
-fi
-
-# --- lb config ---
-log "Debian Live Build yapilandiriliyor..."
-lb config \
-    --mode debian \
-    --system live \
-    --distribution bookworm \
-    --parent-distribution bookworm \
-    --archive-areas "main contrib non-free non-free-firmware" \
-    --parent-archive-areas "main contrib non-free non-free-firmware" \
-    --parent-mirror-bootstrap "http://deb.debian.org/debian" \
-    --parent-mirror-chroot "http://deb.debian.org/debian" \
-    --parent-mirror-binary "http://deb.debian.org/debian" \
-    --mirror-bootstrap "http://deb.debian.org/debian" \
-    --mirror-chroot "http://deb.debian.org/debian" \
-    --mirror-binary "http://deb.debian.org/debian" \
-    --architectures amd64 \
-    --binary-images iso-hybrid \
-    --linux-packages none \
-    --debian-installer false \
-    --memtest none \
-    --iso-application "KlipperAI-OS" \
-    --iso-volume "KlipperAI-OS v${VERSION}" \
-    --apt-recommends false \
-    --security false \
-    --cache true
-
-# Syslinux/isolinux sorunlu: Ubuntu runner'da live-build binary_syslinux
-# asamasi /root/isolinux/ dizinini chroot icinde ariyor ama bulamiyor.
-# Modern sistemlerde UEFI + GRUB yeterli. Syslinux devre disi birakildi.
-log "Bootloader: syslinux devre disi, sadece grub-efi kullaniliyor..."
-if [ -f "${BUILD_DIR}/config/binary" ]; then
-    log "config/binary mevcut icerik:"
-    cat "${BUILD_DIR}/config/binary"
-    # Tum bootloader referanslarini temizle ve grub-efi yaz
-    # NOT: Ubuntu 24.04 live-build LB_BOOTLOADER (tekil) kullaniyor!
-    sed -i '/LB_BOOTLOADER/d' "${BUILD_DIR}/config/binary"
-    echo 'LB_BOOTLOADER="grub-efi"' >> "${BUILD_DIR}/config/binary"
-    log "config/binary guncellenmis icerik:"
-    cat "${BUILD_DIR}/config/binary"
+# =============================================================================
+# ADIM 1: Ubuntu Server ISO'sunu indir
+# =============================================================================
+if [ -f "${BUILD_DIR}/${UBUNTU_ISO_FILE}" ]; then
+    log "Ubuntu Server ISO cache'de mevcut: ${UBUNTU_ISO_FILE}"
 else
-    warn "config/binary bulunamadi, olusturuluyor..."
-    mkdir -p "${BUILD_DIR}/config"
-    echo 'LB_BOOTLOADERS="grub-efi"' > "${BUILD_DIR}/config/binary"
+    log "Ubuntu Server ${UBUNTU_VERSION} ISO indiriliyor..."
+    log "URL: ${UBUNTU_ISO_URL}"
+    wget -q --show-progress -O "${BUILD_DIR}/${UBUNTU_ISO_FILE}" "$UBUNTU_ISO_URL"
+    log "ISO indirildi: $(du -h "${BUILD_DIR}/${UBUNTU_ISO_FILE}" | cut -f1)"
 fi
 
-# Bookworm security repo dogru URL ile ekleniyor
-# (live-build eski bookworm/updates formatini kullaniyor, dogru format bookworm-security)
-mkdir -p "${BUILD_DIR}/config/archives"
-echo "deb http://deb.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware" \
-    > "${BUILD_DIR}/config/archives/security.list.chroot"
-echo "deb http://deb.debian.org/debian bookworm-updates main contrib non-free non-free-firmware" \
-    > "${BUILD_DIR}/config/archives/updates.list.chroot"
+# SHA256 dogrulama (opsiyonel — CI'da zaman kazanmak icin atlanabilir)
+if [ "${SKIP_SHA_CHECK:-}" != "1" ]; then
+    log "SHA256 dogrulamasi yapiliyor..."
+    if wget -q -O "${BUILD_DIR}/SHA256SUMS" "$UBUNTU_ISO_SHA_URL" 2>/dev/null; then
+        expected_sha=$(grep "$UBUNTU_ISO_FILE" "${BUILD_DIR}/SHA256SUMS" | awk '{print $1}')
+        actual_sha=$(sha256sum "${BUILD_DIR}/${UBUNTU_ISO_FILE}" | awk '{print $1}')
+        if [ "$expected_sha" = "$actual_sha" ]; then
+            log "SHA256 dogrulandi ✓"
+        else
+            err "SHA256 uyusmuyor! ISO bozuk olabilir."
+            err "  Beklenen: ${expected_sha}"
+            err "  Gercek:   ${actual_sha}"
+            rm -f "${BUILD_DIR}/${UBUNTU_ISO_FILE}"
+            exit 1
+        fi
+    else
+        warn "SHA256SUMS indirilemedi — dogrulama atlanıyor."
+    fi
+fi
 
-# --- Paket listesi kopyala (sadece minimal — hizli build) ---
-log "Minimal paket listesi kopyalaniyor..."
-cp "${SCRIPT_DIR}/config/package-lists/klipperos.list.chroot" \
-    "${BUILD_DIR}/config/package-lists/"
+# =============================================================================
+# ADIM 2: ISO'yu ac
+# =============================================================================
+ISO_EXTRACT="${BUILD_DIR}/iso-extract"
+log "ISO cikariliyor: ${ISO_EXTRACT}"
+rm -rf "$ISO_EXTRACT"
+mkdir -p "$ISO_EXTRACT"
 
-# Ertelenmis paket listesi proje dosyalariyla birlikte ISO'ya eklenir
-# (wizard tarafindan okunup kurulacak)
+# xorriso ile ISO icerigini cikart
+xorriso -osirrox on -indev "${BUILD_DIR}/${UBUNTU_ISO_FILE}" \
+    -extract / "$ISO_EXTRACT" 2>/dev/null
 
-# --- includes.chroot: proje dosyalarini kopyala ---
-log "Proje dosyalari kopyalaniyor..."
-CHROOT="${BUILD_DIR}/config/includes.chroot"
-mkdir -p "${CHROOT}/opt/klipperos-ai"
+# Yazma izinlerini ayarla (ISO read-only olarak cikar)
+chmod -R u+w "$ISO_EXTRACT"
 
-# Proje dosyalari
+log "ISO cikarildi: $(du -sh "$ISO_EXTRACT" | cut -f1)"
+
+# =============================================================================
+# ADIM 3: Autoinstall config ekle
+# =============================================================================
+log "Autoinstall yapilandirmasi ekleniyor..."
+AUTOINSTALL_DIR="${ISO_EXTRACT}/autoinstall"
+mkdir -p "$AUTOINSTALL_DIR"
+
+# user-data ve meta-data kopyala
+cp "${SCRIPT_DIR}/autoinstall/user-data" "${AUTOINSTALL_DIR}/user-data"
+cp "${SCRIPT_DIR}/autoinstall/meta-data" "${AUTOINSTALL_DIR}/meta-data"
+
+# Password hash'i build sirasinda olustur (guvenli)
+if command -v openssl &>/dev/null; then
+    PASS_HASH=$(openssl passwd -6 -salt "klipperai" "klipper")
+    sed -i "s|password: .*|password: \"${PASS_HASH}\"|" "${AUTOINSTALL_DIR}/user-data"
+    log "Password hash olusturuldu (openssl)"
+fi
+
+log "Autoinstall dosyalari eklendi: user-data, meta-data"
+
+# =============================================================================
+# ADIM 4: KlipperOS-AI proje dosyalarini ekle
+# =============================================================================
+log "KlipperOS-AI proje dosyalari ekleniyor..."
+KLIPPEROS_DIR="${ISO_EXTRACT}/klipperos-ai"
+mkdir -p "$KLIPPEROS_DIR"
+
+# Proje dizinleri
 for dir in scripts ai-monitor config tools ks-panels data; do
     if [ -d "${PROJECT_ROOT}/${dir}" ]; then
-        cp -r "${PROJECT_ROOT}/${dir}" "${CHROOT}/opt/klipperos-ai/"
+        cp -r "${PROJECT_ROOT}/${dir}" "${KLIPPEROS_DIR}/"
+        log "  + ${dir}/"
     fi
 done
 
-# Ertelenmis paket listesini wizard'in okuyabilecegi yere kopyala
-mkdir -p "${CHROOT}/opt/klipperos-ai/config/package-lists"
+# Ertelenmis paket listesi
+mkdir -p "${KLIPPEROS_DIR}/config/package-lists"
 cp "${SCRIPT_DIR}/config/package-lists/klipperos-deferred.list" \
-    "${CHROOT}/opt/klipperos-ai/config/package-lists/" 2>/dev/null || true
+    "${KLIPPEROS_DIR}/config/package-lists/" 2>/dev/null || true
 
 # pyproject.toml ve README
-cp "${PROJECT_ROOT}/pyproject.toml" "${CHROOT}/opt/klipperos-ai/" 2>/dev/null || true
-cp "${PROJECT_ROOT}/README.md" "${CHROOT}/opt/klipperos-ai/" 2>/dev/null || true
+cp "${PROJECT_ROOT}/pyproject.toml" "${KLIPPEROS_DIR}/" 2>/dev/null || true
+cp "${PROJECT_ROOT}/README.md" "${KLIPPEROS_DIR}/" 2>/dev/null || true
+
+# First-boot wizard
+mkdir -p "${KLIPPEROS_DIR}/image-builder"
+cp "${SCRIPT_DIR}/first-boot-wizard.sh" "${KLIPPEROS_DIR}/image-builder/"
 
 # Calistirilabilir izinler
-chmod +x "${CHROOT}/opt/klipperos-ai/scripts/"*.sh 2>/dev/null || true
+chmod +x "${KLIPPEROS_DIR}/scripts/"*.sh 2>/dev/null || true
+chmod +x "${KLIPPEROS_DIR}/image-builder/first-boot-wizard.sh" 2>/dev/null || true
 
-# --- First boot wizard ---
-log "First boot wizard kopyalaniyor..."
-mkdir -p "${CHROOT}/usr/local/bin"
-cp "${SCRIPT_DIR}/first-boot-wizard.sh" "${CHROOT}/usr/local/bin/klipperai-wizard"
-chmod +x "${CHROOT}/usr/local/bin/klipperai-wizard"
-
-# Sentinel dosyasi (wizard sadece ilk boot'ta calisir)
-touch "${CHROOT}/opt/klipperos-ai/.first-boot"
-
-# --- Systemd service ---
-mkdir -p "${CHROOT}/etc/systemd/system"
+# Systemd service dosyasi
+mkdir -p "${KLIPPEROS_DIR}/systemd"
 cp "${SCRIPT_DIR}/config/includes.chroot/etc/systemd/system/klipperai-first-boot.service" \
-    "${CHROOT}/etc/systemd/system/"
+    "${KLIPPEROS_DIR}/systemd/" 2>/dev/null || true
 
-# --- Hook: build icinde kullanici olusturma ---
-log "Build hook kopyalaniyor..."
-mkdir -p "${BUILD_DIR}/config/hooks/live"
-cp "${SCRIPT_DIR}/config/hooks/live/0100-setup.hook.chroot" \
-    "${BUILD_DIR}/config/hooks/live/"
-chmod +x "${BUILD_DIR}/config/hooks/live/0100-setup.hook.chroot"
+log "Proje dosyalari eklendi: $(du -sh "$KLIPPEROS_DIR" | cut -f1)"
 
-# --- GRUB config ---
-log "GRUB yapilandirmasi kopyalaniyor..."
-mkdir -p "${BUILD_DIR}/config/bootloaders/grub-pc"
-cp "${SCRIPT_DIR}/config/bootloaders/grub/grub.cfg" \
-    "${BUILD_DIR}/config/bootloaders/grub-pc/grub.cfg" 2>/dev/null || true
+# =============================================================================
+# ADIM 5: GRUB config'i guncelle — autoinstall parametresi ekle
+# =============================================================================
+log "GRUB yapilandirmasi guncelleniyor..."
 
-# --- isohybrid workaround ---
-# Ubuntu 24.04'te isohybrid komutu mevcut degil.
-# live-build ISO olusturma sonrasinda isohybrid cagiriyor ve bulamazsa hata veriyor.
-# Cozum: isohybrid'i tum olasi PATH'lere yerlestir.
-log "isohybrid workaround uygulanıyor..."
-for bindir in /usr/bin /usr/local/bin /usr/sbin /sbin /bin; do
-    if [ ! -f "${bindir}/isohybrid" ]; then
-        cat > "${bindir}/isohybrid" << 'WRAPPER'
-#!/bin/sh
-echo "isohybrid: skipped (not available on Ubuntu 24.04)"
-exit 0
-WRAPPER
-        chmod +x "${bindir}/isohybrid"
-        log "isohybrid wrapper: ${bindir}/isohybrid"
-    fi
-done
+# Ubuntu Server ISO'daki GRUB config dosyalarini bul ve guncelle
+# UEFI: /boot/grub/grub.cfg
+# Legacy: /boot/grub/grub.cfg (ayni dosya, mbr_force ile)
 
-# --- BUILD ---
-log "Minimal imaj olusturuluyor... (iki asamali build — ~10-20 dk)"
-log "  ISO: minimal paketler (kernel + ag + wizard)"
-log "  First-boot: agir paketler wizard tarafindan kurulacak"
+GRUB_CFG="${ISO_EXTRACT}/boot/grub/grub.cfg"
+if [ -f "$GRUB_CFG" ]; then
+    log "GRUB config bulundu: ${GRUB_CFG}"
 
-# lb build: isohybrid hatasi onemli degil — ISO olusturulduysa basarili
-set +e
-lb build 2>&1 | tee "${BUILD_DIR}/build.log"
-BUILD_EXIT=$?
-set -e
+    # Mevcut GRUB config'in yedegini al
+    cp "$GRUB_CFG" "${GRUB_CFG}.orig"
 
-if [ $BUILD_EXIT -ne 0 ]; then
-    # ISO olusturuldu mu kontrol et
-    if [ -f "${BUILD_DIR}/live-image-amd64.hybrid.iso" ]; then
-        warn "lb build exit code ${BUILD_EXIT} (muhtemelen isohybrid) — ISO mevcut, devam ediliyor."
-    else
-        err "lb build basarisiz oldu ve ISO olusturulamadi!"
-        exit 1
-    fi
+    # autoinstall kernel parametresini ekle
+    # Ubuntu Server ISO'da linux satiri: linux /casper/vmlinuz ---
+    # Biz ekliyoruz: autoinstall ds=nocloud\;s=/cdrom/autoinstall/
+    sed -i 's|---$|autoinstall ds=nocloud\\;s=/cdrom/autoinstall/ ---|' "$GRUB_CFG"
+
+    # Eger --- olmayan satirlar varsa (fallback)
+    sed -i '/vmlinuz/{ /autoinstall/! s|$| autoinstall ds=nocloud\\;s=/cdrom/autoinstall/| }' "$GRUB_CFG"
+
+    log "GRUB config guncellendi — autoinstall parametresi eklendi"
+else
+    warn "GRUB config bulunamadi: ${GRUB_CFG}"
+    warn "Alternatif konumlar aranıyor..."
+    find "$ISO_EXTRACT" -name "grub.cfg" -type f 2>/dev/null | while read -r f; do
+        log "  Bulunan: $f"
+        cp "$f" "${f}.orig"
+        sed -i 's|---$|autoinstall ds=nocloud\\;s=/cdrom/autoinstall/ ---|' "$f"
+        sed -i '/vmlinuz/{ /autoinstall/! s|$| autoinstall ds=nocloud\\;s=/cdrom/autoinstall/| }' "$f"
+        log "  Guncellendi: $f"
+    done
 fi
 
-# --- Cikti ---
-if [ -f "${BUILD_DIR}/live-image-amd64.hybrid.iso" ]; then
-    mv "${BUILD_DIR}/live-image-amd64.hybrid.iso" "${SCRIPT_DIR}/${IMAGE_NAME}.img"
-    IMG_SIZE=$(du -h "${SCRIPT_DIR}/${IMAGE_NAME}.img" | cut -f1)
+# Loopback grub.cfg varsa (Ubuntu bazen /boot/grub/loopback.cfg kullanir)
+LOOPBACK_CFG="${ISO_EXTRACT}/boot/grub/loopback.cfg"
+if [ -f "$LOOPBACK_CFG" ]; then
+    cp "$LOOPBACK_CFG" "${LOOPBACK_CFG}.orig"
+    sed -i 's|---$|autoinstall ds=nocloud\\;s=/cdrom/autoinstall/ ---|' "$LOOPBACK_CFG"
+    log "loopback.cfg guncellendi"
+fi
+
+# =============================================================================
+# ADIM 6: ISO'yu yeniden paketle
+# =============================================================================
+log "ISO yeniden paketleniyor..."
+
+OUTPUT_ISO="${SCRIPT_DIR}/${IMAGE_NAME}.iso"
+
+# Ubuntu Server ISO'nun MBR parcasini cikar (hybrid boot icin)
+dd if="${BUILD_DIR}/${UBUNTU_ISO_FILE}" bs=1 count=446 of="${BUILD_DIR}/mbr.bin" 2>/dev/null
+
+# EFI partition cikar
+EFI_START=$(xorriso -indev "${BUILD_DIR}/${UBUNTU_ISO_FILE}" \
+    -report_el_torito as_mkisofs 2>/dev/null | grep -oP '(?<=-append_partition 2 0xEF )\S+' || true)
+
+# xorriso ile yeni ISO olustur
+# Ubuntu Server ISO yapısını koruyarak yeniden paketle
+xorriso -as mkisofs \
+    -r -V "KlipperAI-OS v${VERSION}" \
+    -o "$OUTPUT_ISO" \
+    --grub2-mbr "${BUILD_DIR}/mbr.bin" \
+    -partition_offset 16 \
+    --mbr-force-bootable \
+    -append_partition 2 28732ac11ff8d211ba4b00a0c93ec93b \
+        "${ISO_EXTRACT}/boot/grub/efi.img" \
+    -appended_part_as_gpt \
+    -iso_mbr_part_type a2a0d0ebe5b9334487c068b6b72699c7 \
+    -c '/boot.catalog' \
+    -b '/boot/grub/i386-pc/eltorito.img' \
+        -no-emul-boot -boot-load-size 4 -boot-info-table --grub2-boot-info \
+    -eltorito-alt-boot \
+    -e '--interval:appended_partition_2:::' \
+        -no-emul-boot \
+    "$ISO_EXTRACT" \
+    2>&1 | tail -5
+
+# Fallback: basit xorriso komutu (yukaridaki basarisiz olursa)
+if [ ! -f "$OUTPUT_ISO" ] || [ ! -s "$OUTPUT_ISO" ]; then
+    warn "Gelismis xorriso basarisiz, basit mod deneniyor..."
+    xorriso -as mkisofs \
+        -r -V "KlipperAI-OS v${VERSION}" \
+        -o "$OUTPUT_ISO" \
+        -J -joliet-long \
+        -b boot/grub/i386-pc/eltorito.img \
+            -no-emul-boot -boot-load-size 4 -boot-info-table \
+        -eltorito-alt-boot \
+        -e boot/grub/efi.img \
+            -no-emul-boot \
+        -isohybrid-gpt-basdat \
+        "$ISO_EXTRACT" \
+        2>&1 | tail -5
+fi
+
+# =============================================================================
+# ADIM 7: Temizlik ve sonuc
+# =============================================================================
+if [ -f "$OUTPUT_ISO" ] && [ -s "$OUTPUT_ISO" ]; then
+    ISO_SIZE=$(du -h "$OUTPUT_ISO" | cut -f1)
+    ISO_SHA=$(sha256sum "$OUTPUT_ISO" | awk '{print $1}')
+
+    # SHA256 dosyasi olustur
+    echo "${ISO_SHA}  ${IMAGE_NAME}.iso" > "${OUTPUT_ISO}.sha256"
+
+    # .img uzantili kopya (workflow uyumlulugu icin)
+    cp "$OUTPUT_ISO" "${SCRIPT_DIR}/${IMAGE_NAME}.img"
+    echo "${ISO_SHA}  ${IMAGE_NAME}.img" > "${SCRIPT_DIR}/${IMAGE_NAME}.img.sha256"
+
     echo ""
-    log "Imaj olusturuldu!"
-    log "Dosya: ${SCRIPT_DIR}/${IMAGE_NAME}.img"
-    log "Boyut: ${IMG_SIZE}"
+    log "============================================"
+    log "  KlipperAI-OS ISO olusturuldu!"
+    log "============================================"
+    log "Dosya: ${OUTPUT_ISO}"
+    log "Boyut: ${ISO_SIZE}"
+    log "SHA256: ${ISO_SHA}"
     echo ""
     echo -e "${GREEN}USB'ye yazmak icin:${NC}"
-    echo "  sudo dd if=${IMAGE_NAME}.img of=/dev/sdX bs=4M status=progress"
+    echo "  sudo dd if=${IMAGE_NAME}.iso of=/dev/sdX bs=4M status=progress"
     echo "  veya Balena Etcher / Rufus kullanin."
+    echo ""
+    echo -e "${CYAN}Not:${NC} Bu ISO, USB'den boot edildiginde Ubuntu Server'i"
+    echo "  otomatik olarak kurar ve ilk boot'ta KlipperOS-AI wizard'i baslatir."
+
+    # Extract dizinini temizle (CI'da disk alanı icin)
+    if [ "${CLEANUP:-1}" = "1" ]; then
+        log "Gecici dosyalar temizleniyor..."
+        rm -rf "$ISO_EXTRACT"
+        rm -f "${BUILD_DIR}/mbr.bin"
+    fi
 else
-    err "Imaj olusturulamadi! build.log dosyasini kontrol edin."
+    err "ISO olusturulamadi!"
+    err "xorriso ciktisini kontrol edin."
     exit 1
 fi

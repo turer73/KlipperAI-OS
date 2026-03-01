@@ -58,7 +58,7 @@ step_welcome() {
   1. Donanim algilama
   2. Kurulum profili secimi
   3. Ag ayarlari
-  4. Diske kurulum (istege bagli)
+  4. Kullanici ayarlari
   5. Sistem paketleri kurulumu
   6. Yazilim kurulumu
 
@@ -287,117 +287,7 @@ step_user_settings() {
 }
 
 # ===================================================================
-# Adim 6: Diske Kurulum (Istege Bagli)
-# ===================================================================
-step_disk_install() {
-    local do_install
-    do_install=$(whiptail --backtitle "$BACKTITLE" \
-        --title "Diske Kurulum" \
-        --menu "Kurulum tipi secin:" \
-        14 60 3 \
-        "1" "Diske kur (kalici kurulum)" \
-        "2" "Live olarak devam et (RAM'de calis)" \
-        3>&1 1>&2 2>&3) || do_install="2"
-
-    if [ "$do_install" = "2" ]; then
-        log "Live mod secildi"
-        return
-    fi
-
-    # Disk listesi
-    local disks
-    disks=$(lsblk -dpno NAME,SIZE,TYPE | grep "disk" | grep -v "loop\|sr\|ram")
-
-    if [ -z "$disks" ]; then
-        whiptail --backtitle "$BACKTITLE" \
-            --title "Hata" \
-            --msgbox "Kurulum icin uygun disk bulunamadi." \
-            8 50
-        return
-    fi
-
-    local disk_items=()
-    while read -r name size _type; do
-        disk_items+=("$name" "${size}")
-    done <<< "$disks"
-
-    local target_disk
-    target_disk=$(whiptail --backtitle "$BACKTITLE" \
-        --title "Hedef Disk Secin" \
-        --menu "UYARI: Secilen diskteki TUM VERILER SILINECEK!" \
-        16 60 5 \
-        "${disk_items[@]}" \
-        3>&1 1>&2 2>&3) || return
-
-    # Onay
-    if ! whiptail --backtitle "$BACKTITLE" \
-        --title "ONAY" \
-        --yesno "UYARI!\n\n${target_disk} diskteki TUM VERILER SILINECEK.\n\nDevam etmek istiyor musunuz?" \
-        12 55; then
-        log "Disk kurulumu iptal edildi"
-        return
-    fi
-
-    log "Diske kurulum basliyor: ${target_disk}"
-
-    # Partitioning
-    {
-        echo "10"; echo "# Disk bolumlendiriliyor..."
-        parted -s "$target_disk" mklabel gpt
-        parted -s "$target_disk" mkpart ESP fat32 1MiB 512MiB
-        parted -s "$target_disk" set 1 esp on
-        parted -s "$target_disk" mkpart primary ext4 512MiB 100%
-
-        echo "20"; echo "# Dosya sistemleri olusturuluyor..."
-        mkfs.fat -F 32 "${target_disk}1" 2>/dev/null || mkfs.fat -F 32 "${target_disk}p1"
-        mkfs.ext4 -F "${target_disk}2" 2>/dev/null || mkfs.ext4 -F "${target_disk}p2"
-
-        echo "30"; echo "# Dosyalar kopyalaniyor..."
-        local mount_root="/mnt/klipperai"
-        mkdir -p "${mount_root}"
-        mount "${target_disk}2" "${mount_root}" 2>/dev/null || mount "${target_disk}p2" "${mount_root}"
-        mkdir -p "${mount_root}/boot/efi"
-        mount "${target_disk}1" "${mount_root}/boot/efi" 2>/dev/null || mount "${target_disk}p1" "${mount_root}/boot/efi"
-
-        echo "40"; echo "# Sistem kopyalaniyor (rsync)..."
-        rsync -aAXv --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} \
-            / "${mount_root}/" >> "$LOG_FILE" 2>&1
-
-        echo "70"; echo "# Bootloader kuruluyor..."
-        # fstab olustur
-        local root_uuid
-        root_uuid=$(blkid -s UUID -o value "${target_disk}2" 2>/dev/null || blkid -s UUID -o value "${target_disk}p2")
-        local efi_uuid
-        efi_uuid=$(blkid -s UUID -o value "${target_disk}1" 2>/dev/null || blkid -s UUID -o value "${target_disk}p1")
-
-        cat > "${mount_root}/etc/fstab" << FSTAB
-UUID=${root_uuid}  /          ext4  defaults,noatime  0  1
-UUID=${efi_uuid}   /boot/efi  vfat  defaults          0  2
-tmpfs              /tmp       tmpfs defaults,noatime,size=64M 0 0
-FSTAB
-
-        echo "80"; echo "# GRUB kuruluyor..."
-        mount --bind /dev "${mount_root}/dev"
-        mount --bind /proc "${mount_root}/proc"
-        mount --bind /sys "${mount_root}/sys"
-        chroot "${mount_root}" grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=KlipperAI-OS 2>>"$LOG_FILE" || true
-        chroot "${mount_root}" grub-install "$target_disk" 2>>"$LOG_FILE" || true
-        chroot "${mount_root}" update-grub 2>>"$LOG_FILE"
-
-        echo "95"; echo "# Temizleniyor..."
-        umount -R "${mount_root}" 2>/dev/null || true
-
-        echo "100"; echo "# Tamamlandi!"
-    } | whiptail --backtitle "$BACKTITLE" \
-        --title "Diske Kurulum" \
-        --gauge "Hazirlaniyor..." \
-        8 60 0
-
-    log "Disk kurulumu tamamlandi: ${target_disk}"
-}
-
-# ===================================================================
-# Adim 7: Ertelenmis Paket Kurulumu
+# Adim 6: Ertelenmis Paket Kurulumu
 # ===================================================================
 step_install_deferred_packages() {
     # Internet kontrolu
@@ -478,7 +368,7 @@ step_install_deferred_packages() {
 }
 
 # ===================================================================
-# Adim 8: Profil Kurulumu
+# Adim 7: Profil Kurulumu
 # ===================================================================
 step_install_profile() {
     # Internet kontrolu
@@ -529,7 +419,7 @@ step_install_profile() {
 }
 
 # ===================================================================
-# Adim 9: Tamamlandi
+# Adim 8: Tamamlandi
 # ===================================================================
 step_complete() {
     local ip_addr
@@ -567,7 +457,6 @@ main() {
     step_select_profile
     step_network
     step_user_settings
-    step_disk_install
     step_install_deferred_packages || {
         log "Ertelenmis paket kurulumu basarisiz. Wizard sonlandirildi."
         exit 1

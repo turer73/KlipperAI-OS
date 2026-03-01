@@ -12,7 +12,9 @@ build/
 image-builder/build/
 *.iso
 *.img
+*.img.xz
 *.img.sha256
+*.img.xz.sha256
 
 # IDE
 .vscode/

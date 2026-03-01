@@ -72,7 +72,8 @@ jobs:
           sudo apt-get install -y \
             xorriso \
             wget \
-            p7zip-full
+            p7zip-full \
+            xz-utils
 
       # ----- Build script'te versiyonu guncelle -----
       - name: Update version in build script
@@ -104,40 +105,60 @@ jobs:
         id: image_info
         run: |
           IMAGE_NAME="${{ steps.version.outputs.image_name }}"
-          IMAGE_PATH="image-builder/${IMAGE_NAME}.img"
 
-          # build-image.sh hem .iso hem .img olusturur
-          # .img yoksa .iso'yu kontrol et ve kopyala
-          if [ ! -f "$IMAGE_PATH" ]; then
-            ISO_PATH="image-builder/${IMAGE_NAME}.iso"
-            if [ -f "$ISO_PATH" ]; then
-              cp "$ISO_PATH" "$IMAGE_PATH"
-            else
-              # Alternatif uzantilarla ara
-              FOUND=$(find image-builder/ -maxdepth 1 \( -name "*.iso" -o -name "*.img" \) -not -name "*.sha256" 2>/dev/null | head -1)
-              if [ -n "$FOUND" ]; then
-                cp "$FOUND" "$IMAGE_PATH"
-              else
-                echo "::error::Image file not found!"
-                ls -la image-builder/
-                exit 1
+          # --- Sikistirilmis dosya (GitHub Release icin) ---
+          COMPRESSED_PATH="image-builder/${IMAGE_NAME}.img.xz"
+          if [ ! -f "$COMPRESSED_PATH" ]; then
+            echo "::warning::Compressed file not found, trying to find and compress..."
+            # Orijinal ISO/IMG dosyasini bul
+            ORIG=""
+            for ext in .img .iso; do
+              if [ -f "image-builder/${IMAGE_NAME}${ext}" ]; then
+                ORIG="image-builder/${IMAGE_NAME}${ext}"
+                break
               fi
+            done
+            if [ -z "$ORIG" ]; then
+              ORIG=$(find image-builder/ -maxdepth 1 \( -name "*.iso" -o -name "*.img" \) -not -name "*.sha256" -not -name "*.xz" 2>/dev/null | head -1)
+            fi
+            if [ -n "$ORIG" ]; then
+              echo "::notice::Compressing ${ORIG}..."
+              xz -z -T0 -3 -c "$ORIG" > "$COMPRESSED_PATH"
+            else
+              echo "::error::No image file found to compress!"
+              ls -la image-builder/
+              exit 1
             fi
           fi
 
-          FILE_SIZE=$(du -h "$IMAGE_PATH" | cut -f1)
-          FILE_SIZE_BYTES=$(stat --printf="%s" "$IMAGE_PATH")
-          SHA256=$(sha256sum "$IMAGE_PATH" | cut -d' ' -f1)
+          COMP_SIZE=$(du -h "$COMPRESSED_PATH" | cut -f1)
+          COMP_SIZE_BYTES=$(stat --printf="%s" "$COMPRESSED_PATH")
+          COMP_SHA256=$(sha256sum "$COMPRESSED_PATH" | cut -d' ' -f1)
 
-          echo "image_path=${IMAGE_PATH}" >> "$GITHUB_OUTPUT"
-          echo "file_size=${FILE_SIZE}" >> "$GITHUB_OUTPUT"
-          echo "file_size_bytes=${FILE_SIZE_BYTES}" >> "$GITHUB_OUTPUT"
-          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+          echo "compressed_path=${COMPRESSED_PATH}" >> "$GITHUB_OUTPUT"
+          echo "compressed_size=${COMP_SIZE}" >> "$GITHUB_OUTPUT"
+          echo "compressed_size_bytes=${COMP_SIZE_BYTES}" >> "$GITHUB_OUTPUT"
+          echo "compressed_sha256=${COMP_SHA256}" >> "$GITHUB_OUTPUT"
 
-          # SHA256 checksum dosyasi olustur
-          echo "${SHA256}  ${IMAGE_NAME}.img" > "${IMAGE_PATH}.sha256"
+          # SHA256 checksum dosyasi
+          echo "${COMP_SHA256}  ${IMAGE_NAME}.img.xz" > "${COMPRESSED_PATH}.sha256"
 
-          echo "::notice::Image: ${FILE_SIZE}, SHA256: ${SHA256}"
+          # --- Orijinal ISO bilgileri (sadece bilgi amacli) ---
+          ORIG_PATH="image-builder/${IMAGE_NAME}.iso"
+          if [ ! -f "$ORIG_PATH" ]; then
+            ORIG_PATH="image-builder/${IMAGE_NAME}.img"
+          fi
+          if [ -f "$ORIG_PATH" ]; then
+            ORIG_SIZE=$(du -h "$ORIG_PATH" | cut -f1)
+            ORIG_SHA256=$(sha256sum "$ORIG_PATH" | cut -d' ' -f1)
+            echo "original_size=${ORIG_SIZE}" >> "$GITHUB_OUTPUT"
+            echo "original_sha256=${ORIG_SHA256}" >> "$GITHUB_OUTPUT"
+          else
+            echo "original_size=N/A" >> "$GITHUB_OUTPUT"
+            echo "original_sha256=N/A" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "::notice::Compressed: ${COMP_SIZE} (${COMP_SIZE_BYTES} bytes), SHA256: ${COMP_SHA256}"
 
       # ----- Artifact olarak yukle (her zaman) -----
       - name: Upload build artifact
@@ -145,8 +166,8 @@ jobs:
         with:
           name: ${{ steps.version.outputs.image_name }}
           path: |
-            ${{ steps.image_info.outputs.image_path }}
-            ${{ steps.image_info.outputs.image_path }}.sha256
+            ${{ steps.image_info.outputs.compressed_path }}
+            ${{ steps.image_info.outputs.compressed_path }}.sha256
           retention-days: 14
           compression-level: 0
 
@@ -165,48 +186,58 @@ jobs:
           body: |
             ## KlipperAI-OS v${{ steps.version.outputs.version }}
 
-            3D yazıcılar için Klipper + Moonraker + Mainsail + AI destekli komple işletim sistemi.
-            Ubuntu Server 24.04 LTS tabanlı.
+            3D yazicilar icin Klipper + Moonraker + Mainsail + AI destekli komple isletim sistemi.
+            Ubuntu Server 24.04 LTS tabanli.
 
-            ### 📥 İndirme
+            ### 📥 Indirme
 
             | Dosya | Boyut | SHA256 |
             |-------|-------|--------|
-            | `${{ steps.version.outputs.image_name }}.img` | ${{ steps.image_info.outputs.file_size }} | `${{ steps.image_info.outputs.sha256 }}` |
+            | `${{ steps.version.outputs.image_name }}.img.xz` | ${{ steps.image_info.outputs.compressed_size }} | `${{ steps.image_info.outputs.compressed_sha256 }}` |
+
+            > Orijinal ISO boyutu: ${{ steps.image_info.outputs.original_size }}
 
             ### 🔧 Kurulum
 
-            **USB'ye yazma:**
+            **1. Dosyayi ac:**
+            ```bash
+            # Linux / macOS
+            xz -d ${{ steps.version.outputs.image_name }}.img.xz
+
+            # Windows: 7-Zip ile acin
+            ```
+
+            **2. USB'ye yaz:**
             ```bash
             # Linux / macOS
             sudo dd if=${{ steps.version.outputs.image_name }}.img of=/dev/sdX bs=4M status=progress
 
-            # Veya Balena Etcher / Rufus kullanin
+            # Windows: Balena Etcher veya Rufus kullanin
             ```
 
-            **İlk açılış:**
+            **3. Ilk acilis:**
             1. USB'den boot edin
-            2. Ubuntu autoinstall otomatik tamamlanır (~5 dk)
-            3. Yeniden başlatma sonrası First Boot Wizard başlar
-            4. Donanım algılama → Profil seçimi → Ağ → Yazılım kurulumu
+            2. Ubuntu autoinstall otomatik tamamlanir (~5 dk)
+            3. Yeniden baslatma sonrasi First Boot Wizard baslar
+            4. Donanim algilama → Profil secimi → Ag → Yazilim kurulumu
             5. Profiller: **LIGHT** (512MB RAM) | **STANDARD** (2GB+) | **FULL** (4GB+)
 
-            ### 📦 İçerik
+            ### 📦 Icerik
             - Klipper + Moonraker + Mainsail (web UI)
             - KlipperScreen (dokunmatik ekran)
             - Crowsnest (kamera streaming)
-            - AI Print Monitor (yapay zeka baskı izleme)
+            - AI Print Monitor (yapay zeka baski izleme)
             - Input Shaping Assistant
-            - FlowGuard filament sensörü
-            - Otomatik donanım algılama ve profil önerisi
+            - FlowGuard filament sensoru
+            - Otomatik donanim algilama ve profil onerisi
 
-            ### ✅ Doğrulama
+            ### ✅ Dogrulama
             ```bash
-            sha256sum -c ${{ steps.version.outputs.image_name }}.img.sha256
+            sha256sum -c ${{ steps.version.outputs.image_name }}.img.xz.sha256
             ```
           files: |
-            ${{ steps.image_info.outputs.image_path }}
-            ${{ steps.image_info.outputs.image_path }}.sha256
+            ${{ steps.image_info.outputs.compressed_path }}
+            ${{ steps.image_info.outputs.compressed_path }}.sha256
 
       # ----- Build ozeti -----
       - name: Build summary
@@ -217,11 +248,12 @@ jobs:
           echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Version | v${{ steps.version.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image | \`${{ steps.version.outputs.image_name }}.img\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.version.outputs.image_name }}.img.xz\` |" >> $GITHUB_STEP_SUMMARY
           echo "| Method | Ubuntu Server 24.04 ISO repackaging |" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${{ steps.image_info.outputs.file_size }}" ]; then
-            echo "| Size | ${{ steps.image_info.outputs.file_size }} |" >> $GITHUB_STEP_SUMMARY
-            echo "| SHA256 | \`${{ steps.image_info.outputs.sha256 }}\` |" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.image_info.outputs.compressed_size }}" ]; then
+            echo "| Compressed | ${{ steps.image_info.outputs.compressed_size }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Original | ${{ steps.image_info.outputs.original_size }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| SHA256 | \`${{ steps.image_info.outputs.compressed_sha256 }}\` |" >> $GITHUB_STEP_SUMMARY
           fi
           echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Runner | ${{ runner.os }} ${{ runner.arch }} |" >> $GITHUB_STEP_SUMMARY

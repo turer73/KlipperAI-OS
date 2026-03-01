@@ -354,10 +354,19 @@ if [ -f "$OUTPUT_ISO" ] && [ -s "$OUTPUT_ISO" ]; then
     ISO_SIZE=$(du -h "$OUTPUT_ISO" | cut -f1)
     ISO_SHA=$(sha256sum "$OUTPUT_ISO" | awk '{print $1}')
 
-    # SHA256 dosyasi olustur
+    # SHA256 dosyasi olustur (orijinal ISO icin)
     echo "${ISO_SHA}  ${IMAGE_NAME}.iso" > "${OUTPUT_ISO}.sha256"
 
-    # .img uzantili kopya (workflow uyumlulugu icin)
+    # ISO'yu xz ile sikistir (GitHub Release 2GB limiti)
+    log "ISO sikistiriliyor (xz)... Bu birkaç dakika surebilir."
+    COMPRESSED="${SCRIPT_DIR}/${IMAGE_NAME}.img.xz"
+    xz -z -T0 -3 -k "$OUTPUT_ISO" -c > "$COMPRESSED"
+    COMP_SIZE=$(du -h "$COMPRESSED" | cut -f1)
+    COMP_SHA=$(sha256sum "$COMPRESSED" | awk '{print $1}')
+    echo "${COMP_SHA}  ${IMAGE_NAME}.img.xz" > "${COMPRESSED}.sha256"
+    log "Sikistirilmis boyut: ${COMP_SIZE}"
+
+    # Sikistirilmamis .img kopya (lokal kullanim icin)
     cp "$OUTPUT_ISO" "${SCRIPT_DIR}/${IMAGE_NAME}.img"
     echo "${ISO_SHA}  ${IMAGE_NAME}.img" > "${SCRIPT_DIR}/${IMAGE_NAME}.img.sha256"
 

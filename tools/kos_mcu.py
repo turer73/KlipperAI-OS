@@ -20,9 +20,10 @@ from pathlib import Path
 KLIPPER_HOME = Path(os.environ.get("KLIPPER_HOME", "/home/klipper"))
 KLIPPER_DIR = KLIPPER_HOME / "klipper"
 MCU_DETECT_SCRIPT = Path("/opt/klipperos-ai/scripts/mcu-detect.sh")
+BOARDS_JSON = Path(__file__).parent.parent / "data" / "boards.json"
 
-# Bilinen kart turleri ve menuconfig ayarlari
-BOARD_CONFIGS = {
+# Bilinen kart turleri ve menuconfig ayarlari (fallback)
+_FALLBACK_BOARD_CONFIGS = {
     "creality": {
         "description": "Creality 4.2.x (STM32F103)",
         "mcu": "stm32f103xe",
@@ -54,6 +55,34 @@ BOARD_CONFIGS = {
         "comm": "serial",
     },
 }
+
+
+def load_board_db() -> list:
+    """Board veritabanini JSON'dan yukle."""
+    if BOARDS_JSON.exists():
+        try:
+            with open(BOARDS_JSON) as f:
+                data = json.load(f)
+                return data.get("boards", [])
+        except Exception as e:
+            print(f"Uyari: Board DB okunamadi: {e}")
+    return []
+
+
+def get_board_configs() -> dict:
+    """JSON board veritabanindan BOARD_CONFIGS sozlugu olustur."""
+    boards = load_board_db()
+    configs = {}
+    for b in boards:
+        key = b["name"].lower().replace(" ", "-").replace(".", "")
+        configs[key] = {
+            "description": f"{b['name']} ({b['mcu']})",
+            "mcu": b["chip"],
+            "bootloader": b["bootloader"],
+            "comm": b["comm"],
+        }
+    # Fallback: JSON'dan yuklenemezse hardcoded configs kullan
+    return configs if configs else _FALLBACK_BOARD_CONFIGS
 
 
 def run(cmd: list[str], cwd: str = None, **kwargs) -> subprocess.CompletedProcess:
@@ -126,6 +155,30 @@ def cmd_scan(_args):
     print(f"  [mcu]")
     print(f"  serial: {best['path']}")
 
+    # CANbus tarama
+    print(f"\nCANbus Taramasi")
+    print(f"{'-'*30}")
+    can_result = run(["ip", "-details", "link", "show", "type", "can"])
+    if can_result.returncode == 0 and can_result.stdout.strip():
+        print("CANbus arayuzleri bulundu:")
+        for line in can_result.stdout.strip().split("\n"):
+            print(f"  {line}")
+    else:
+        print("  CANbus arayuzu bulunamadi.")
+
+    # CAN UUID tarama (~/klippy-env varsa)
+    canbus_query = KLIPPER_DIR / "scripts" / "canbus_query.py"
+    if canbus_query.exists():
+        print(f"\nCAN UUID Taramasi:")
+        uuid_result = run(
+            ["python3", str(canbus_query), "can0"],
+            cwd=str(KLIPPER_DIR),
+        )
+        if uuid_result.returncode == 0 and uuid_result.stdout.strip():
+            print(uuid_result.stdout)
+        else:
+            print("  CAN UUID bulunamadi.")
+
 
 def cmd_info(_args):
     """Klipper MCU bilgisi."""
@@ -164,18 +217,19 @@ def cmd_info(_args):
 def cmd_flash(args):
     """Klipper firmware build ve flash."""
     board = args.board
+    board_configs = get_board_configs()
 
     if not KLIPPER_DIR.exists():
         print(f"Hata: Klipper dizini bulunamadi: {KLIPPER_DIR}")
         sys.exit(1)
 
-    if board and board not in BOARD_CONFIGS:
+    if board and board not in board_configs:
         print(f"Hata: Bilinmeyen kart tipi '{board}'.")
-        print(f"Bilinen kartlar: {', '.join(BOARD_CONFIGS.keys())}")
+        print(f"Bilinen kartlar: {', '.join(board_configs.keys())}")
         sys.exit(1)
 
     if board:
-        config = BOARD_CONFIGS[board]
+        config = board_configs[board]
         print(f"Kart: {config['description']}")
         print(f"MCU:  {config['mcu']}")
     else:
@@ -244,6 +298,29 @@ def cmd_flash(args):
         print(f"  make flash FLASH_DEVICE=/dev/ttyACM0")
 
 
+def cmd_list_boards(_args):
+    """Board veritabanindaki kartlari listele."""
+    print("Desteklenen MCU Kartlari")
+    print(f"{'='*60}")
+
+    boards = load_board_db()
+    if not boards:
+        print("Board veritabani bulunamadi.")
+        print(f"Beklenen dosya: {BOARDS_JSON}")
+        return
+
+    for b in boards:
+        print(f"\n  {b['name']}")
+        print(f"    MCU:        {b['mcu']}")
+        print(f"    Chip:       {b['chip']}")
+        print(f"    Bootloader: {b['bootloader']}")
+        print(f"    Iletisim:   {b['comm']}")
+        if b.get('printer_models'):
+            print(f"    Yazicilar:  {', '.join(b['printer_models'])}")
+
+    print(f"\nToplam: {len(boards)} kart")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="KlipperOS-AI MCU Yoneticisi",
@@ -253,12 +330,12 @@ def main():
 
     subparsers.add_parser("scan", help="MCU kartlarini tara")
     subparsers.add_parser("info", help="MCU bilgisi")
+    subparsers.add_parser("list-boards", help="Desteklenen MCU kartlarini listele")
 
     flash_parser = subparsers.add_parser("flash", help="Klipper firmware flash")
     flash_parser.add_argument(
         "--board", "-b",
-        choices=list(BOARD_CONFIGS.keys()),
-        help="Kart tipi",
+        help="Kart tipi (listesi icin: kos_mcu list-boards)",
     )
 
     args = parser.parse_args()
@@ -267,6 +344,7 @@ def main():
         "scan": cmd_scan,
         "info": cmd_info,
         "flash": cmd_flash,
+        "list-boards": cmd_list_boards,
     }
 
     if args.command in commands:

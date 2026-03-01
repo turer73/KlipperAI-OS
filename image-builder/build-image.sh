@@ -55,12 +55,23 @@ fi
 # --- lb config ---
 log "Debian Live Build yapilandiriliyor..."
 lb config \
+    --mode debian \
+    --system live \
     --distribution bookworm \
     --parent-distribution bookworm \
+    --archive-areas "main contrib non-free non-free-firmware" \
+    --parent-archive-areas "main contrib non-free non-free-firmware" \
     --parent-mirror-bootstrap "http://deb.debian.org/debian" \
+    --parent-mirror-chroot "http://deb.debian.org/debian" \
     --parent-mirror-chroot-security "http://deb.debian.org/debian-security" \
+    --parent-mirror-binary "http://deb.debian.org/debian" \
+    --parent-mirror-binary-security "http://deb.debian.org/debian-security" \
     --mirror-bootstrap "http://deb.debian.org/debian" \
+    --mirror-chroot "http://deb.debian.org/debian" \
     --mirror-chroot-security "http://deb.debian.org/debian-security" \
+    --mirror-binary "http://deb.debian.org/debian" \
+    --mirror-binary-security "http://deb.debian.org/debian-security" \
+    --debootstrap-options "--no-check-gpg" \
     --architectures amd64 \
     --binary-images iso-hybrid \
     --debian-installer none \

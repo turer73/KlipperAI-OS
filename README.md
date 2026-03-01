@@ -11,13 +11,18 @@ Klipper 3D printer firmware icin ozellestirilmis, AI destekli baski izleme icere
 - **Multi-printer Desteği**: Tek host'ta 3 yaziciya kadar (FULL profil)
 - **Tailscale VPN**: Uzaktan erisim, port forwarding gereksiz
 - **SBC + x86**: RPi 3/4/5, Orange Pi, eski PC/laptop desteği
+- **Power Loss Recovery (PLR)**: Guc kesintisinde baskiyi katman bazli kurtarma
+- **FlowGuard 4-Katman Tespit**: Filament sensor + Heater duty + TMC StallGuard + AI kamera ile akis kontrolu
+- **Smart Rewind**: G-code koordinat geri sarma, belirli katmandan yeniden baslatma
+- **TMC Kalibrasyon**: StallGuard tabanli akis kalibrasyonu
+- **jschuh/klipper-macros**: Gelismis makro alt yapisi entegrasyonu
 
 ## Profiller
 
 | Profil | RAM | Bilesenler |
 |--------|-----|------------|
-| **LIGHT** | 512MB-1GB | Klipper + Moonraker + Mainsail |
-| **STANDARD** | 2GB+ | + KlipperScreen + Crowsnest + AI Monitor |
+| **LIGHT** | 512MB-1GB | Klipper + Moonraker + Mainsail + PLR + Rewind |
+| **STANDARD** | 2GB+ | + KlipperScreen + Crowsnest + AI Monitor + FlowGuard |
 | **FULL** | 4GB+ | + Multi-printer + Timelapse + Gelismis AI |
 
 ## Kurulum
@@ -59,15 +64,86 @@ sudo ./scripts/install-klipper-os.sh --standard --non-interactive
 | `kos_mcu scan` | MCU kartlarini tara |
 | `kos_mcu info` | MCU bilgisi |
 | `kos_mcu flash --board creality` | Firmware flash |
+| `kos-plr status` | PLR durumunu goster |
+| `kos-plr resume` | Kayitli baskiyi devam ettir |
+| `kos-plr clear` | PLR verisini temizle |
+| `kos-rewind status` | Mevcut baski durumu |
+| `kos-rewind goto --layer 50` | 50. katmandan yeniden baslat |
+| `kos-rewind auto` | FlowGuard son OK katmanindan devam et |
+| `kos-calibrate flow-status` | TMC kalibrasyon durumu |
+| `kos-calibrate flow-test` | Yeni kalibrasyon testi |
+| `kos_mcu list-boards` | Desteklenen kartlari listele |
 
 ## AI Baski Izleme
 
 - **Model**: MobileNetV2 quantized (TFLite, ~5-10MB)
 - **RAM**: ~80MB inference sirasinda
 - **Aralik**: Her 5-10 saniye (yapilandirilabilir)
-- **Tespit**: Spaghetti, stringing, baski tamamlanma
+- **Tespit**: Spaghetti, ekstruzyon kaybi, stringing, baski tamamlanma
 - **Aksiyon**: Otomatik duraklama, Moonraker bildirimi
 - **False-positive korunma**: 3 ardisik alert gerekliligi
+
+## Power Loss Recovery (PLR)
+
+Guc kesintisinde baskiyi otomatik kurtarma:
+
+```bash
+kos-plr status    # PLR durumunu goster
+kos-plr resume    # Kayitli baskiyi devam ettir
+kos-plr clear     # PLR verisini temizle
+kos-plr test      # PLR kayit testini calistir
+```
+
+PLR ozellikleri:
+- Katman bazli durum kaydi (`[save_variables]` ile)
+- Sicaklik, fan hizi, Z yukseklik otomatik geri yukleme
+- jschuh/klipper-macros `BEFORE_LAYER_CHANGE` hook entegrasyonu
+- Z homing guvenligi: SET_KINEMATIC_POSITION ile resume
+
+## FlowGuard 4-Katman Akis Tespiti
+
+4 bagimsiz kaynak ile filament akis kontrolu:
+
+| Katman | Kaynak | Guven |
+|--------|--------|-------|
+| L1 | Filament motion sensor | 0.95 |
+| L2 | Heater duty cycle analizi | 0.70 |
+| L3 | TMC2209 StallGuard (SG_RESULT) | 0.85 |
+| L4 | AI kamera (spaghetti/no_extrusion) | 0.60 |
+
+Oylama mantigi:
+- 0/4 anomali: OK
+- 1/4 anomali: NOTICE (log)
+- 2/4 anomali: WARNING (3 ardisik → CRITICAL)
+- 3-4/4 anomali: CRITICAL (otomatik duraklama)
+
+## Smart Rewind
+
+Akis durmasinda baskiyi belirli bir katmandan yeniden baslatma:
+
+```bash
+kos-rewind status               # Mevcut baski durumu
+kos-rewind goto --layer 50      # 50. katmandan baslat
+kos-rewind goto --layer 50 --z-offset 1.0  # Z offset ile
+kos-rewind auto                 # FlowGuard son OK katmanindan
+kos-rewind auto --z-offset 1.0  # Z offset ile otomatik
+```
+
+Ozellikler:
+- PrusaSlicer/OrcaSlicer/Cura G-code formatlari destegi
+- Z offset ile kopru benzeri yapisma
+- FlowGuard `last_ok_layer` entegrasyonu
+- Otomatik nozzle isitma, purge ve retract
+
+## TMC Akis Kalibrasyonu
+
+TMC2209 StallGuard ile filament akis kalibrasyonu:
+
+```bash
+kos-calibrate flow-status    # Kalibrasyon durumu
+kos-calibrate flow-test      # Yeni kalibrasyon testi (30sn)
+kos-calibrate flow-reset     # Kalibrasyon verisini sil
+```
 
 ## Ag Erisimi
 
@@ -102,22 +178,33 @@ KlipperOS-AI/
 │   ├── install-light.sh          # LIGHT profil
 │   ├── install-standard.sh       # STANDARD profil
 │   └── install-full.sh           # FULL profil
-├── config/
-│   ├── klipper/                  # Yazici config template'leri
-│   ├── moonraker/                # Moonraker config
-│   ├── mainsail/                 # Nginx config
-│   ├── klipperscreen/            # KlipperScreen config
-│   └── crowsnest/                # Kamera config
+├── data/
+│   └── boards.json                # MCU board veritabani
 ├── ai-monitor/
 │   ├── print_monitor.py          # AI monitor daemon
-│   ├── spaghetti_detect.py       # TFLite tespit modulu
+│   ├── spaghetti_detect.py       # TFLite tespit modulu (5 sinif)
+│   ├── flow_guard.py             # FlowGuard oylama motoru
+│   ├── heater_analyzer.py        # Heater duty analizi
+│   ├── extruder_monitor.py       # TMC StallGuard izleme
 │   ├── frame_capture.py          # Kamera frame yakalama
 │   └── models/                   # TFLite model dosyalari
 ├── tools/
 │   ├── kos_profile.py            # Profil yoneticisi
 │   ├── kos_update.py             # Guncelleme yoneticisi
 │   ├── kos_backup.py             # Yedekleme yoneticisi
-│   └── kos_mcu.py                # MCU yoneticisi
+│   ├── kos_mcu.py                # MCU yoneticisi
+│   ├── kos_plr.py                # PLR yoneticisi
+│   ├── kos_rewind.py             # Smart Rewind araci
+│   └── kos_calibrate.py          # TMC kalibrasyon araci
+├── config/
+│   ├── klipper/                  # Yazici config + KOS makrolar
+│   │   ├── kos_plr.cfg           # PLR makrolari
+│   │   ├── kos_flowguard.cfg     # FlowGuard makrolari
+│   │   └── kos_rewind.cfg        # Rewind makrolari
+│   ├── moonraker/                # Moonraker config
+│   ├── mainsail/                 # Nginx config
+│   ├── klipperscreen/            # KlipperScreen config
+│   └── crowsnest/                # Kamera config
 ├── pyproject.toml
 └── docs/
     └── plans/
@@ -126,10 +213,11 @@ KlipperOS-AI/
 ## Desteklenen Kartlar
 
 - **Creality**: Ender 3, Ender 3 V2, Ender 3 S1, CR-10
-- **BTT**: SKR Mini E3, SKR 1.4, Octopus
+- **BTT**: SKR Mini E3 V3, SKR 3, Octopus V1.1, Manta M4P/M5P/M8P, EBB36/42 CAN
 - **RP2040**: SKR Pico, Raspberry Pi Pico
 - **Arduino**: Mega 2560
-- **MKS**: Robin, Gen L
+- **MKS**: Robin Nano V3
+- **Fysetc**: Spider V2
 
 ## SSH Erisimi
 

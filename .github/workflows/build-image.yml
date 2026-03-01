@@ -93,6 +93,26 @@ jobs:
           lb --version || true
           debootstrap --version || true
 
+      # ----- Isolinux dosyalarini live-build'in beklediği yere kopyala -----
+      - name: Prepare isolinux files
+        run: |
+          sudo mkdir -p /root/isolinux
+          # isolinux.bin
+          if [ -f /usr/lib/ISOLINUX/isolinux.bin ]; then
+            sudo cp /usr/lib/ISOLINUX/isolinux.bin /root/isolinux/
+          fi
+          # vesamenu.c32
+          if [ -f /usr/lib/syslinux/modules/bios/vesamenu.c32 ]; then
+            sudo cp /usr/lib/syslinux/modules/bios/vesamenu.c32 /root/isolinux/
+          fi
+          # Diger gerekli c32 dosyalari
+          for f in ldlinux.c32 libcom32.c32 libutil.c32; do
+            if [ -f /usr/lib/syslinux/modules/bios/$f ]; then
+              sudo cp /usr/lib/syslinux/modules/bios/$f /root/isolinux/
+            fi
+          done
+          ls -la /root/isolinux/ || true
+
       # ----- Imaj olustur -----
       - name: Build ISO image
         run: |

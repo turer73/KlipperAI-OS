@@ -70,7 +70,7 @@ lb config \
     --architectures amd64 \
     --binary-images iso-hybrid \
     --linux-packages none \
-    --debian-installer none \
+    --debian-installer false \
     --memtest none \
     --iso-application "KlipperAI-OS" \
     --iso-volume "KlipperAI-OS v${VERSION}" \

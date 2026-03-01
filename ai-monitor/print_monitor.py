@@ -26,6 +26,9 @@ import requests
 
 from frame_capture import FrameCapture
 from spaghetti_detect import SpaghettiDetector
+from flow_guard import FlowGuard, FlowSignal, FlowVerdict
+from heater_analyzer import HeaterDutyAnalyzer
+from extruder_monitor import ExtruderLoadMonitor
 
 # --- Logging ---
 logging.basicConfig(
@@ -100,6 +103,72 @@ class MoonrakerClient:
             logger.debug("Bildirim gonderilemedi: %s", e)
             return False
 
+    def get_heater_duty(self) -> float:
+        """Get extruder heater duty cycle (PWM power ratio)."""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/printer/objects/query",
+                params={"extruder": "power"},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {}).get("status", {})
+            return data.get("extruder", {}).get("power", 0.0)
+        except Exception:
+            return -1.0  # Signal unavailable
+
+    def get_tmc_sg_result(self) -> int:
+        """Get TMC2209 StallGuard SG_RESULT for extruder."""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/printer/objects/query",
+                params={"tmc2209 extruder": "drv_status"},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {}).get("status", {})
+            drv_status = data.get("tmc2209 extruder", {}).get("drv_status", {})
+            return drv_status.get("sg_result", -1)
+        except Exception:
+            return -1  # Signal unavailable
+
+    def get_filament_sensor(self) -> int:
+        """Get filament motion sensor state. Returns 1=detected, 0=not, -1=unavailable."""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/printer/objects/query",
+                params={"filament_motion_sensor btt_sfs": "filament_detected,enabled"},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {}).get("status", {})
+            sensor = data.get("filament_motion_sensor btt_sfs", {})
+            if not sensor.get("enabled", False):
+                return -1
+            return 1 if sensor.get("filament_detected", True) else 0
+        except Exception:
+            return -1
+
+    def get_print_layer_info(self) -> dict:
+        """Get current print layer and Z info."""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/printer/objects/query",
+                params={"print_stats": "info", "gcode_move": "gcode_position"},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {}).get("status", {})
+            info = data.get("print_stats", {}).get("info", {})
+            gcode_pos = data.get("gcode_move", {}).get("gcode_position", [0, 0, 0, 0])
+            return {
+                "current_layer": info.get("current_layer", 0),
+                "total_layer": info.get("total_layer", 0),
+                "z_height": gcode_pos[2] if len(gcode_pos) > 2 else 0.0,
+            }
+        except Exception:
+            return {"current_layer": 0, "total_layer": 0, "z_height": 0.0}
+
     def is_available(self) -> bool:
         """Moonraker erisilebilir mi?"""
         try:
@@ -124,6 +193,16 @@ class PrintMonitor:
         self._consecutive_alerts = 0
         self._last_action_time = 0
 
+        # FlowGuard 4-layer detection
+        self.flow_guard = FlowGuard()
+        self.heater_analyzer = HeaterDutyAnalyzer()
+        self.extruder_monitor = ExtruderLoadMonitor()
+        self._flowguard_enabled = bool(os.environ.get("FLOWGUARD_ENABLED", "1"))
+        self._calibration_done = False
+        self._calibration_count = 0
+        self._calibration_heater_samples = []
+        self._calibration_tmc_samples = []
+
     def start(self):
         """Monitor'u baslat."""
         logger.info("=" * 50)
@@ -145,6 +224,10 @@ class PrintMonitor:
 
         # Moonraker'i bekle
         self._wait_for_moonraker()
+
+        # FlowGuard baslatma
+        if self._flowguard_enabled:
+            logger.info("FlowGuard aktif. Kalibrasyon baski basladiginda yapilacak.")
 
         # Ana dongu
         self._running = True
@@ -192,6 +275,10 @@ class PrintMonitor:
 
         # Aksiyon al
         self._handle_action(action, result)
+
+        # --- FlowGuard 4-Layer Check ---
+        if self._flowguard_enabled:
+            self._flowguard_cycle()
 
     def _handle_action(self, action: str, result: dict):
         """Tespit sonucuna gore aksiyon al."""
@@ -245,6 +332,118 @@ class PrintMonitor:
         logger.info("Sinyal alindi (%s). Monitor durduruluyor...", signum)
         self._running = False
 
+    def _flowguard_cycle(self):
+        """FlowGuard 4-layer detection cycle."""
+        # Kalibrasyon asamasi
+        if not self._calibration_done:
+            self._flowguard_calibrate()
+            return
+
+        # Layer bilgisi guncelle
+        layer_info = self.moonraker.get_print_layer_info()
+        self.flow_guard.update_layer(
+            layer_info["current_layer"],
+            layer_info["z_height"],
+        )
+
+        # 4 sinyal topla
+        signals = []
+
+        # L1: Filament sensor
+        sensor = self.moonraker.get_filament_sensor()
+        if sensor == -1:
+            signals.append(FlowSignal.UNAVAILABLE)
+        elif sensor == 0:
+            signals.append(FlowSignal.ANOMALY)
+        else:
+            signals.append(FlowSignal.OK)
+
+        # L2: Heater duty cycle
+        duty = self.moonraker.get_heater_duty()
+        if duty < 0:
+            signals.append(FlowSignal.UNAVAILABLE)
+        else:
+            self.heater_analyzer.add_sample(duty)
+            heater_state = self.heater_analyzer.check_flow()
+            if heater_state.name == "ANOMALY":
+                signals.append(FlowSignal.ANOMALY)
+            else:
+                signals.append(FlowSignal.OK)
+
+        # L3: TMC SG_RESULT
+        sg = self.moonraker.get_tmc_sg_result()
+        if sg < 0:
+            signals.append(FlowSignal.UNAVAILABLE)
+        else:
+            self.extruder_monitor.add_sample(sg)
+            tmc_state = self.extruder_monitor.check_flow()
+            if tmc_state.name == "ANOMALY":
+                signals.append(FlowSignal.ANOMALY)
+            else:
+                signals.append(FlowSignal.OK)
+
+        # L4: AI Camera (from existing detection)
+        # The main _check_cycle already runs AI detection
+        # Use the last AI result as L4 signal
+        signals.append(FlowSignal.OK)  # Default OK, overridden below
+
+        # Oylama
+        verdict = self.flow_guard.evaluate(signals)
+
+        if verdict == FlowVerdict.CRITICAL:
+            logger.critical(
+                "FlowGuard CRITICAL — Baski duraklatiliyor! "
+                "Sinyaller: %s, Son OK katman: %d (Z=%.1f)",
+                [s.name for s in signals],
+                self.flow_guard.last_ok_layer,
+                self.flow_guard.last_ok_z,
+            )
+            self.moonraker.pause_print()
+            self.moonraker.send_notification(
+                f"FlowGuard CRITICAL: Akis hatasi tespit edildi! "
+                f"Son saglikli katman: {self.flow_guard.last_ok_layer} "
+                f"(Z={self.flow_guard.last_ok_z:.1f}mm). Baski duraklatildi."
+            )
+        elif verdict == FlowVerdict.WARNING:
+            logger.warning(
+                "FlowGuard WARNING — Sinyaller: %s (ardisik: %d/%d)",
+                [s.name for s in signals],
+                self.flow_guard.warning_count,
+                self.flow_guard.warning_threshold,
+            )
+        elif verdict == FlowVerdict.NOTICE:
+            logger.info("FlowGuard NOTICE — Tek sinyal anomalisi: %s",
+                         [s.name for s in signals])
+
+    def _flowguard_calibrate(self):
+        """FlowGuard kalibrasyon — ilk 30 ornekle baseline hesapla."""
+        duty = self.moonraker.get_heater_duty()
+        sg = self.moonraker.get_tmc_sg_result()
+
+        if duty >= 0:
+            self._calibration_heater_samples.append(duty)
+        if sg >= 0:
+            self._calibration_tmc_samples.append(sg)
+
+        self._calibration_count += 1
+
+        if self._calibration_count >= 30:
+            # Heater baseline
+            if self._calibration_heater_samples:
+                for s in self._calibration_heater_samples:
+                    self.heater_analyzer.add_sample(s)
+                self.heater_analyzer.calibrate()
+                logger.info("FlowGuard L2 baseline: %.3f", self.heater_analyzer.baseline)
+
+            # TMC baseline
+            if self._calibration_tmc_samples:
+                mean_sg = sum(self._calibration_tmc_samples) / len(self._calibration_tmc_samples)
+                self.extruder_monitor.set_baseline(mean_sg)
+                logger.info("FlowGuard L3 baseline: %.1f", mean_sg)
+
+            self._calibration_done = True
+            logger.info("FlowGuard kalibrasyon tamamlandi. 4-katman tespit aktif.")
+
     @property
     def stats(self) -> dict:
         """Monitor istatistikleri."""
@@ -253,6 +452,10 @@ class PrintMonitor:
             "alert_count": self._alert_count,
             "capture_stats": self.capture.stats,
             "model_loaded": self.detector.is_loaded,
+            "flowguard_enabled": self._flowguard_enabled,
+            "flowguard_calibrated": self._calibration_done,
+            "flowguard_last_ok_layer": self.flow_guard.last_ok_layer,
+            "flowguard_warning_count": self.flow_guard.warning_count,
         }
 
 

@@ -228,6 +228,48 @@ AISERVICE
     log "AI Print Monitor kuruldu."
 }
 
+# --- Klipper Input Shaping Assistant Kur ---
+install_input_shaping_assistant() {
+    log "Klipper Input Shaping Assistant kuruluyor..."
+
+    local isa_dir="${KLIPPER_HOME}/input-shaping-assistant"
+
+    if [ -d "$isa_dir" ]; then
+        log "Input Shaping Assistant zaten kurulu, guncelleniyor..."
+        cd "$isa_dir"
+        sudo -u "$KLIPPER_USER" git pull --ff-only || true
+    else
+        sudo -u "$KLIPPER_USER" git clone \
+            https://github.com/theycallmek/Klipper-Input-Shaping-Assistant.git \
+            "$isa_dir"
+    fi
+
+    # Python venv
+    local isa_venv="${isa_dir}/.venv"
+    if [ ! -d "$isa_venv" ]; then
+        sudo -u "$KLIPPER_USER" python3 -m venv "$isa_venv"
+    fi
+
+    # Bagimliliklari kur
+    if [ -f "${isa_dir}/requirements.txt" ]; then
+        sudo -u "$KLIPPER_USER" "${isa_venv}/bin/pip" install --quiet \
+            -r "${isa_dir}/requirements.txt" 2>/dev/null || \
+        sudo -u "$KLIPPER_USER" "${isa_venv}/bin/pip" install --quiet \
+            matplotlib numpy
+    fi
+
+    # CLI wrapper
+    cat > /usr/local/bin/kos-input-shaper << ISAWRAP
+#!/bin/bash
+# KlipperOS-AI — Input Shaping Assistant launcher
+cd ${isa_dir}
+${isa_venv}/bin/python main.py "\$@"
+ISAWRAP
+    chmod +x /usr/local/bin/kos-input-shaper
+
+    log "Input Shaping Assistant kuruldu. Calistirmak icin: kos-input-shaper"
+}
+
 # --- Moonraker'a kamera ve AI entegrasyonu ---
 update_moonraker_config() {
     log "Moonraker config guncelleniyor (kamera + AI)..."
@@ -252,6 +294,13 @@ origin: https://github.com/KlipperScreen/KlipperScreen.git
 virtualenv: ~/KlipperScreen/.venv
 requirements: scripts/KlipperScreen-requirements.txt
 managed_services: KlipperScreen
+
+[update_manager input_shaping_assistant]
+type: git_repo
+path: ~/input-shaping-assistant
+origin: https://github.com/theycallmek/Klipper-Input-Shaping-Assistant.git
+virtualenv: ~/input-shaping-assistant/.venv
+requirements: requirements.txt
 MOONEXT
     fi
 }
@@ -365,6 +414,7 @@ main() {
     install_klipperscreen
     install_crowsnest
     install_ai_monitor
+    install_input_shaping_assistant
     install_system_panels
     update_moonraker_config
     enable_standard_services

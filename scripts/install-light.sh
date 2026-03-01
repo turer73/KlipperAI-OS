@@ -448,6 +448,49 @@ configure_mdns() {
     log "mDNS hazir: klipperos.local"
 }
 
+# --- zram ve Bellek Optimizasyonu ---
+setup_zram() {
+    log "zram ve bellek optimizasyonu kuruluyor..."
+
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+    # zram yapilandirmasi
+    if [ -x "${script_dir}/setup-zram.sh" ]; then
+        bash "${script_dir}/setup-zram.sh"
+    fi
+
+    # zram systemd service
+    if [ -f "${script_dir}/../config/systemd/kos-zram.service" ]; then
+        cp "${script_dir}/../config/systemd/kos-zram.service" /etc/systemd/system/
+        systemctl daemon-reload
+        systemctl enable kos-zram.service
+    fi
+
+    # cgroup bellek limitleri
+    local mem_limits="${script_dir}/../config/systemd/memory-limits"
+    if [ -d "$mem_limits" ]; then
+        for conf in "$mem_limits"/*.conf; do
+            local svc_name
+            svc_name=$(basename "$conf" .conf)
+            mkdir -p "/etc/systemd/system/${svc_name}.service.d"
+            cp "$conf" "/etc/systemd/system/${svc_name}.service.d/memory.conf"
+        done
+        systemctl daemon-reload
+    fi
+
+    # Logrotate config
+    if [ -f "${script_dir}/../config/logrotate/klipperos" ]; then
+        cp "${script_dir}/../config/logrotate/klipperos" /etc/logrotate.d/klipperos
+    fi
+
+    # earlyoom
+    apt-get install -y --no-install-recommends earlyoom 2>/dev/null || true
+    systemctl enable earlyoom 2>/dev/null || true
+
+    log "zram ve bellek optimizasyonu kuruldu."
+}
+
 # --- Servisleri Baslat ---
 enable_services() {
     log "Servisler etkinlestiriliyor..."
@@ -483,6 +526,7 @@ main() {
     configure_ssh
     configure_mdns
     install_tailscale
+    setup_zram
     enable_services
 
     echo ""

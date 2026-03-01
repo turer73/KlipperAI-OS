@@ -256,6 +256,78 @@ MOONEXT
     fi
 }
 
+# --- Sistem Panelleri ve Optimizasyonlar Kur ---
+install_system_panels() {
+    log "Sistem panelleri ve optimizasyonlar kuruluyor..."
+
+    # VTE3 ve psutil paketleri
+    apt-get install -y --no-install-recommends \
+        gir1.2-vte-2.91 \
+        matchbox-keyboard \
+        python3-psutil
+
+    # KlipperScreen venv'e psutil kur
+    local ks_venv="${KLIPPER_HOME}/KlipperScreen/.venv"
+    if [ -d "$ks_venv" ]; then
+        sudo -u "$KLIPPER_USER" "${ks_venv}/bin/pip" install --quiet psutil requests
+    fi
+
+    # Panel dosyalarini kopyala
+    local panel_dir="${KLIPPER_HOME}/KlipperScreen/ks_includes/panels"
+    if [ -d "${SCRIPT_DIR}/../ks-panels" ]; then
+        cp "${SCRIPT_DIR}/../ks-panels/"*.py "${panel_dir}/" 2>/dev/null || true
+        chown -R "$KLIPPER_USER:$KLIPPER_USER" "${panel_dir}/"
+        log "Sistem panelleri kopyalandi."
+    fi
+
+    # KlipperScreen config'e sistem menusu ekle
+    local ks_conf="${KLIPPER_HOME}/printer_data/config/KlipperScreen.conf"
+    if [ -f "$ks_conf" ] && ! grep -q "menu __main system" "$ks_conf" 2>/dev/null; then
+        cat "${SCRIPT_DIR}/../config/klipperscreen/KlipperScreen.conf" > "$ks_conf"
+        chown "$KLIPPER_USER:$KLIPPER_USER" "$ks_conf"
+        log "KlipperScreen sistem menusu eklendi."
+    fi
+
+    # zram yapilandirmasi
+    if [ -x "${SCRIPT_DIR}/setup-zram.sh" ]; then
+        bash "${SCRIPT_DIR}/setup-zram.sh"
+        log "zram yapilandirildi."
+    fi
+
+    # zram systemd service
+    if [ -f "${SCRIPT_DIR}/../config/systemd/kos-zram.service" ]; then
+        cp "${SCRIPT_DIR}/../config/systemd/kos-zram.service" /etc/systemd/system/
+        systemctl daemon-reload
+        systemctl enable kos-zram.service
+        log "kos-zram servisi etkinlestirildi."
+    fi
+
+    # cgroup bellek limitleri
+    local mem_limits="${SCRIPT_DIR}/../config/systemd/memory-limits"
+    if [ -d "$mem_limits" ]; then
+        for conf in "$mem_limits"/*.conf; do
+            local svc_name
+            svc_name=$(basename "$conf" .conf)
+            mkdir -p "/etc/systemd/system/${svc_name}.service.d"
+            cp "$conf" "/etc/systemd/system/${svc_name}.service.d/memory.conf"
+        done
+        systemctl daemon-reload
+        log "Bellek limitleri yapilandirildi."
+    fi
+
+    # Logrotate config
+    if [ -f "${SCRIPT_DIR}/../config/logrotate/klipperos" ]; then
+        cp "${SCRIPT_DIR}/../config/logrotate/klipperos" /etc/logrotate.d/klipperos
+        log "Log rotation yapilandirildi."
+    fi
+
+    # earlyoom kur
+    apt-get install -y --no-install-recommends earlyoom 2>/dev/null || true
+    systemctl enable earlyoom 2>/dev/null || true
+
+    log "Sistem panelleri ve optimizasyonlar kuruldu."
+}
+
 # --- Servisleri Baslat ---
 enable_standard_services() {
     log "STANDARD servisler etkinlestiriliyor..."
@@ -293,6 +365,7 @@ main() {
     install_klipperscreen
     install_crowsnest
     install_ai_monitor
+    install_system_panels
     update_moonraker_config
     enable_standard_services
 

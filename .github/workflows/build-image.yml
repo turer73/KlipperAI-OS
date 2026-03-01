@@ -93,33 +93,30 @@ jobs:
           lb --version || true
           debootstrap --version || true
 
-      # ----- Isolinux dosyalarini live-build'in beklediği yere kopyala -----
-      - name: Prepare isolinux files
+      # ----- Live-build syslinux debug + isolinux hazirlik -----
+      - name: Prepare bootloader files
         run: |
-          sudo mkdir -p /root/isolinux
-
-          # isolinux.bin (her zaman /usr/lib/ISOLINUX/ altinda)
-          ISOLINUX_BIN=$(find /usr -name "isolinux.bin" 2>/dev/null | head -1)
-          if [ -n "$ISOLINUX_BIN" ]; then
-            sudo cp "$ISOLINUX_BIN" /root/isolinux/
-            echo "OK: isolinux.bin (kaynak: $ISOLINUX_BIN)"
+          echo "=== live-build binary_syslinux kaynak kodu ==="
+          echo "--- /root/isolinux referanslari ---"
+          sudo grep -rn "root/isolinux" /usr/lib/live/build/ 2>/dev/null || echo "Bulunamadi /usr/lib/live"
+          sudo grep -rn "root/isolinux" /usr/share/live/build/ 2>/dev/null || echo "Bulunamadi /usr/share/live"
+          echo ""
+          echo "--- binary_syslinux dosya icerigi (ozet) ---"
+          SYSLINUX_SCRIPT=$(find /usr/lib/live /usr/share/live -name "binary_syslinux" 2>/dev/null | head -1)
+          if [ -n "$SYSLINUX_SCRIPT" ]; then
+            echo "Script: $SYSLINUX_SCRIPT"
+            sudo head -100 "$SYSLINUX_SCRIPT"
           else
-            echo "HATA: isolinux.bin bulunamadi!"
-            exit 1
+            echo "binary_syslinux script bulunamadi"
           fi
+          echo ""
 
-          # c32 modulleri - BIOS versiyonlari oncelikli (isolinux BIOS bootloader)
-          for fname in vesamenu.c32 ldlinux.c32 libcom32.c32 libutil.c32; do
-            # Once bios dizininde ara
+          # Isolinux dosyalarini hazirla (host + chroot icin)
+          sudo mkdir -p /root/isolinux
+          for fname in isolinux.bin vesamenu.c32 ldlinux.c32 libcom32.c32 libutil.c32; do
             FPATH=$(find /usr/lib/syslinux/modules/bios -name "$fname" 2>/dev/null | head -1)
-            # Bulunamazsa genel arama
-            if [ -z "$FPATH" ]; then
-              FPATH=$(find /usr -path "*/bios/*" -name "$fname" 2>/dev/null | head -1)
-            fi
-            # Son cari: herhangi bir versiyon
-            if [ -z "$FPATH" ]; then
-              FPATH=$(find /usr -name "$fname" 2>/dev/null | head -1)
-            fi
+            [ -z "$FPATH" ] && FPATH=$(find /usr -path "*/bios/*" -name "$fname" 2>/dev/null | head -1)
+            [ -z "$FPATH" ] && FPATH=$(find /usr -name "$fname" 2>/dev/null | head -1)
             if [ -n "$FPATH" ]; then
               sudo cp "$FPATH" /root/isolinux/
               echo "OK: $fname (kaynak: $FPATH)"
@@ -127,11 +124,8 @@ jobs:
               echo "WARN: $fname bulunamadi"
             fi
           done
-
-          echo "=== /root/isolinux/ icerigi ==="
+          echo "=== /root/isolinux/ ==="
           sudo ls -la /root/isolinux/
-          echo "=== Dogrulama ==="
-          sudo test -f /root/isolinux/isolinux.bin && echo "BASARILI: isolinux.bin hazir" || { echo "HATA: isolinux.bin yok!"; exit 1; }
 
       # ----- Imaj olustur -----
       - name: Build ISO image

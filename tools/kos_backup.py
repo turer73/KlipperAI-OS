@@ -178,6 +178,62 @@ def _cleanup_old_backups():
         print(f"  Eski yedek silindi: {oldest.name}")
 
 
+# ---- Programmatic API for panels / scripts ----
+
+def create_backup(backup_dir: str) -> str:
+    """Create a new backup in *backup_dir* and return the archive path."""
+    backup_path = Path(backup_dir)
+    backup_path.mkdir(parents=True, exist_ok=True)
+
+    name = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = backup_path / f"klipperos-backup-{name}.tar.gz"
+
+    with tarfile.open(str(backup_file), "w:gz") as tar:
+        files_added = 0
+        for source_dir in BACKUP_SOURCES:
+            if source_dir.exists():
+                tar.add(str(source_dir), arcname=str(source_dir.relative_to("/")))
+                files_added += sum(1 for p in source_dir.rglob("*") if p.is_file())
+
+        if files_added == 0:
+            backup_file.unlink(missing_ok=True)
+            return ""
+
+    return str(backup_file)
+
+
+def list_backups(backup_dir: str):
+    """Return a list of backup dicts: name, path, size_mb, date."""
+    backup_path = Path(backup_dir)
+    if not backup_path.exists():
+        return []
+
+    results = []
+    for f in sorted(backup_path.glob("klipperos-backup-*.tar.gz"), reverse=True):
+        stat = f.stat()
+        results.append({
+            "name": f.name,
+            "path": str(f),
+            "size_mb": round(stat.st_size / (1024 * 1024), 1),
+            "date": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d"),
+        })
+    return results
+
+
+def restore_backup(backup_path: str, restore_dir: str) -> bool:
+    """Restore *backup_path* archive into *restore_dir*. Returns True on success."""
+    bp = Path(backup_path)
+    if not bp.exists():
+        return False
+
+    rd = Path(restore_dir)
+    rd.mkdir(parents=True, exist_ok=True)
+
+    with tarfile.open(str(bp), "r:gz") as tar:
+        tar.extractall(path=str(rd))
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="KlipperOS-AI Yedekleme Yoneticisi",

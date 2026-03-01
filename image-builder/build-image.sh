@@ -112,6 +112,12 @@ chmod -R u+w "$ISO_EXTRACT"
 
 log "ISO cikarildi: $(du -sh "$ISO_EXTRACT" | cut -f1)"
 
+# Debug: ISO icerigini listele
+log "ISO yapisi (onemli dosyalar):"
+find "$ISO_EXTRACT" -name "*.img" -o -name "*.bin" -o -name "grub.cfg" -o -name "efi*" 2>/dev/null | head -20 | while read -r f; do
+    log "  $(ls -lh "$f" | awk '{print $5, $NF}')"
+done
+
 # =============================================================================
 # ADIM 3: Autoinstall config ekle
 # =============================================================================
@@ -223,49 +229,122 @@ log "ISO yeniden paketleniyor..."
 
 OUTPUT_ISO="${SCRIPT_DIR}/${IMAGE_NAME}.iso"
 
-# Ubuntu Server ISO'nun MBR parcasini cikar (hybrid boot icin)
+# Ubuntu Server ISO'nun boot parametrelerini oku
+# xorriso -report_el_torito bize orijinal ISO'nun tam boot yapilandirmasini verir
+log "Orijinal ISO boot parametreleri okunuyor..."
+BOOT_PARAMS=$(xorriso -indev "${BUILD_DIR}/${UBUNTU_ISO_FILE}" \
+    -report_el_torito as_mkisofs 2>/dev/null || true)
+log "Boot params: ${BOOT_PARAMS}"
+
+# MBR parcasini cikar (hybrid boot icin)
 dd if="${BUILD_DIR}/${UBUNTU_ISO_FILE}" bs=1 count=446 of="${BUILD_DIR}/mbr.bin" 2>/dev/null
 
-# EFI partition cikar
-EFI_START=$(xorriso -indev "${BUILD_DIR}/${UBUNTU_ISO_FILE}" \
-    -report_el_torito as_mkisofs 2>/dev/null | grep -oP '(?<=-append_partition 2 0xEF )\S+' || true)
+# EFI partition'i ayri dosya olarak cikar
+# Ubuntu Server ISO'da EFI partition genellikle appended partition olarak bulunur
+# --interval:appended_partition_2:all:: formatinda xorriso tanimlari vardir
+# Bunu orijinal ISO'dan cikarmamiz gerekiyor
+EFI_IMG="${BUILD_DIR}/efi.img"
+log "EFI partition cikariliyor..."
+PART_START=$(xorriso -indev "${BUILD_DIR}/${UBUNTU_ISO_FILE}" \
+    -report_el_torito as_mkisofs 2>/dev/null | \
+    grep -oP '(?<=-append_partition 2 0xEF )\S+' || true)
+
+if [ -n "$PART_START" ] && [ -f "$PART_START" ]; then
+    cp "$PART_START" "$EFI_IMG"
+    log "EFI partition dosyadan kopyalandi"
+else
+    # Alternatif: EFI image'i ISO icerisinden bul
+    EFI_CANDIDATES=(
+        "${ISO_EXTRACT}/boot/grub/efi.img"
+        "${ISO_EXTRACT}/EFI/BOOT/efiboot.img"
+        "${ISO_EXTRACT}/efi.img"
+    )
+    EFI_FOUND=""
+    for candidate in "${EFI_CANDIDATES[@]}"; do
+        if [ -f "$candidate" ]; then
+            EFI_FOUND="$candidate"
+            log "EFI image bulundu: ${candidate}"
+            break
+        fi
+    done
+
+    if [ -z "$EFI_FOUND" ]; then
+        # EFI partition'i dogrudan orijinal ISO'dan dd ile cikar
+        log "EFI image dosya olarak bulunamadi, ISO'dan cikartiliyor..."
+        # Ubuntu Server ISO'da EFI partition offset'ini bul
+        PART_INFO=$(fdisk -l "${BUILD_DIR}/${UBUNTU_ISO_FILE}" 2>/dev/null | grep "EFI" | head -1 || true)
+        if [ -n "$PART_INFO" ]; then
+            EFI_START_SECTOR=$(echo "$PART_INFO" | awk '{print $2}')
+            EFI_END_SECTOR=$(echo "$PART_INFO" | awk '{print $3}')
+            EFI_SECTORS=$((EFI_END_SECTOR - EFI_START_SECTOR + 1))
+            dd if="${BUILD_DIR}/${UBUNTU_ISO_FILE}" of="$EFI_IMG" \
+                bs=512 skip="$EFI_START_SECTOR" count="$EFI_SECTORS" 2>/dev/null
+            log "EFI partition cikarildi: ${EFI_SECTORS} sektorler"
+        else
+            warn "EFI partition bilgisi bulunamadi!"
+        fi
+    else
+        cp "$EFI_FOUND" "$EFI_IMG"
+    fi
+fi
+
+# BIOS boot image'ini bul
+BIOS_IMG=""
+BIOS_CANDIDATES=(
+    "${ISO_EXTRACT}/boot/grub/i386-pc/eltorito.img"
+    "${ISO_EXTRACT}/boot/grub/bios.img"
+    "${ISO_EXTRACT}/isolinux/isolinux.bin"
+)
+for candidate in "${BIOS_CANDIDATES[@]}"; do
+    if [ -f "$candidate" ]; then
+        BIOS_IMG="$candidate"
+        log "BIOS boot image bulundu: ${candidate}"
+        break
+    fi
+done
 
 # xorriso ile yeni ISO olustur
-# Ubuntu Server ISO yapısını koruyarak yeniden paketle
-xorriso -as mkisofs \
-    -r -V "KlipperAI-OS v${VERSION}" \
-    -o "$OUTPUT_ISO" \
-    --grub2-mbr "${BUILD_DIR}/mbr.bin" \
-    -partition_offset 16 \
-    --mbr-force-bootable \
-    -append_partition 2 28732ac11ff8d211ba4b00a0c93ec93b \
-        "${ISO_EXTRACT}/boot/grub/efi.img" \
-    -appended_part_as_gpt \
-    -iso_mbr_part_type a2a0d0ebe5b9334487c068b6b72699c7 \
-    -c '/boot.catalog' \
-    -b '/boot/grub/i386-pc/eltorito.img' \
-        -no-emul-boot -boot-load-size 4 -boot-info-table --grub2-boot-info \
-    -eltorito-alt-boot \
-    -e '--interval:appended_partition_2:::' \
-        -no-emul-boot \
-    "$ISO_EXTRACT" \
-    2>&1 | tail -5
+if [ -f "$EFI_IMG" ] && [ -f "$BIOS_IMG" ]; then
+    log "Hybrid boot ISO olusturuluyor (BIOS + UEFI)..."
+    BIOS_REL="${BIOS_IMG#${ISO_EXTRACT}/}"
 
-# Fallback: basit xorriso komutu (yukaridaki basarisiz olursa)
-if [ ! -f "$OUTPUT_ISO" ] || [ ! -s "$OUTPUT_ISO" ]; then
-    warn "Gelismis xorriso basarisiz, basit mod deneniyor..."
+    xorriso -as mkisofs \
+        -r -V "KlipperAI-OS v${VERSION}" \
+        -o "$OUTPUT_ISO" \
+        --grub2-mbr "${BUILD_DIR}/mbr.bin" \
+        -partition_offset 16 \
+        --mbr-force-bootable \
+        -append_partition 2 28732ac11ff8d211ba4b00a0c93ec93b "$EFI_IMG" \
+        -appended_part_as_gpt \
+        -iso_mbr_part_type a2a0d0ebe5b9334487c068b6b72699c7 \
+        -c '/boot.catalog' \
+        -b "/${BIOS_REL}" \
+            -no-emul-boot -boot-load-size 4 -boot-info-table --grub2-boot-info \
+        -eltorito-alt-boot \
+        -e '--interval:appended_partition_2:::' \
+            -no-emul-boot \
+        "$ISO_EXTRACT" \
+        2>&1 | tail -10
+
+elif [ -f "$EFI_IMG" ]; then
+    log "UEFI-only ISO olusturuluyor..."
+    xorriso -as mkisofs \
+        -r -V "KlipperAI-OS v${VERSION}" \
+        -o "$OUTPUT_ISO" \
+        -append_partition 2 28732ac11ff8d211ba4b00a0c93ec93b "$EFI_IMG" \
+        -appended_part_as_gpt \
+        -e '--interval:appended_partition_2:::' \
+            -no-emul-boot \
+        "$ISO_EXTRACT" \
+        2>&1 | tail -10
+else
+    warn "Boot image bulunamadi — basit ISO olusturuluyor..."
     xorriso -as mkisofs \
         -r -V "KlipperAI-OS v${VERSION}" \
         -o "$OUTPUT_ISO" \
         -J -joliet-long \
-        -b boot/grub/i386-pc/eltorito.img \
-            -no-emul-boot -boot-load-size 4 -boot-info-table \
-        -eltorito-alt-boot \
-        -e boot/grub/efi.img \
-            -no-emul-boot \
-        -isohybrid-gpt-basdat \
         "$ISO_EXTRACT" \
-        2>&1 | tail -5
+        2>&1 | tail -10
 fi
 
 # =============================================================================

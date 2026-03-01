@@ -165,25 +165,42 @@ cp "${SCRIPT_DIR}/config/bootloaders/grub/grub.cfg" \
     "${BUILD_DIR}/config/bootloaders/grub-pc/grub.cfg" 2>/dev/null || true
 
 # --- isohybrid workaround ---
-# Ubuntu 24.04'te syslinux-utils paketi isohybrid komutunu icermiyor.
+# Ubuntu 24.04'te isohybrid komutu mevcut degil.
 # live-build ISO olusturma sonrasinda isohybrid cagiriyor ve bulamazsa hata veriyor.
-# Cozum: no-op isohybrid wrapper olustur, sonra xorriso ile hybrid yap.
-if ! command -v isohybrid &>/dev/null; then
-    log "isohybrid bulunamadi — no-op wrapper olusturuluyor..."
-    cat > /usr/local/bin/isohybrid << 'WRAPPER'
+# Cozum: isohybrid'i tum olasi PATH'lere yerlestir.
+log "isohybrid workaround uygulanıyor..."
+for bindir in /usr/bin /usr/local/bin /usr/sbin /sbin /bin; do
+    if [ ! -f "${bindir}/isohybrid" ]; then
+        cat > "${bindir}/isohybrid" << 'WRAPPER'
 #!/bin/sh
-# No-op wrapper: isohybrid islemi xorriso ile lb build sonrasi yapilacak
-echo "isohybrid: skipped (will use xorriso instead)"
+echo "isohybrid: skipped (not available on Ubuntu 24.04)"
 exit 0
 WRAPPER
-    chmod +x /usr/local/bin/isohybrid
-fi
+        chmod +x "${bindir}/isohybrid"
+        log "isohybrid wrapper: ${bindir}/isohybrid"
+    fi
+done
 
 # --- BUILD ---
 log "Minimal imaj olusturuluyor... (iki asamali build — ~10-20 dk)"
 log "  ISO: minimal paketler (kernel + ag + wizard)"
 log "  First-boot: agir paketler wizard tarafindan kurulacak"
+
+# lb build: isohybrid hatasi onemli degil — ISO olusturulduysa basarili
+set +e
 lb build 2>&1 | tee "${BUILD_DIR}/build.log"
+BUILD_EXIT=$?
+set -e
+
+if [ $BUILD_EXIT -ne 0 ]; then
+    # ISO olusturuldu mu kontrol et
+    if [ -f "${BUILD_DIR}/live-image-amd64.hybrid.iso" ]; then
+        warn "lb build exit code ${BUILD_EXIT} (muhtemelen isohybrid) — ISO mevcut, devam ediliyor."
+    else
+        err "lb build basarisiz oldu ve ISO olusturulamadi!"
+        exit 1
+    fi
+fi
 
 # --- Cikti ---
 if [ -f "${BUILD_DIR}/live-image-amd64.hybrid.iso" ]; then

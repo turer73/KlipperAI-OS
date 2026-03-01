@@ -77,6 +77,13 @@ ffmpeg
 # --- Klipper CANBUS ---
 can-utils
 
+# --- Bootloader ---
+grub-efi-amd64
+grub-pc-bin
+syslinux
+syslinux-common
+isolinux
+
 # --- Wizard bagimliliklari ---
 parted
 dosfstools

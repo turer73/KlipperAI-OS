@@ -141,30 +141,37 @@ cp "${SCRIPT_DIR}/config/bootloaders/grub/grub.cfg" \
 # live-build, BIOS boot icin isolinux.bin ve syslinux modullerini
 # /root/isolinux/ dizininde arar. Ubuntu'da bu dosyalar farkli yollarda
 # kurulu oldugu icin find ile bulup kopyaliyoruz.
+# ONEMLI: c32 modulleri BIOS versiyonu olmali (efi64 degil)!
 log "Isolinux/syslinux dosyalari hazirlaniyor..."
 mkdir -p /root/isolinux
 
-ISOLINUX_NEEDED=(isolinux.bin vesamenu.c32 ldlinux.c32 libcom32.c32 libutil.c32)
-ISOLINUX_FOUND=0
+# isolinux.bin
+ISOLINUX_BIN=$(find /usr -name "isolinux.bin" 2>/dev/null | head -1)
+if [ -n "$ISOLINUX_BIN" ]; then
+    cp "$ISOLINUX_BIN" /root/isolinux/
+    log "  isolinux.bin (kaynak: $ISOLINUX_BIN)"
+else
+    warn "  isolinux.bin bulunamadi!"
+fi
 
-for fname in "${ISOLINUX_NEEDED[@]}"; do
-    FPATH=$(find /usr -name "$fname" 2>/dev/null | head -1)
+# c32 modulleri - BIOS versiyonlari oncelikli
+for fname in vesamenu.c32 ldlinux.c32 libcom32.c32 libutil.c32; do
+    # Once bios dizininde ara
+    FPATH=$(find /usr/lib/syslinux/modules/bios -name "$fname" 2>/dev/null | head -1)
+    # Bulunamazsa genel bios arama
+    [ -z "$FPATH" ] && FPATH=$(find /usr -path "*/bios/*" -name "$fname" 2>/dev/null | head -1)
+    # Son cari: herhangi bir versiyon
+    [ -z "$FPATH" ] && FPATH=$(find /usr -name "$fname" 2>/dev/null | head -1)
     if [ -n "$FPATH" ]; then
         cp "$FPATH" /root/isolinux/
-        log "  $fname -> /root/isolinux/ (kaynak: $FPATH)"
-        ISOLINUX_FOUND=$((ISOLINUX_FOUND + 1))
+        log "  $fname (kaynak: $FPATH)"
     else
         warn "  $fname bulunamadi!"
     fi
 done
 
-log "Isolinux dosyalari: ${ISOLINUX_FOUND}/${#ISOLINUX_NEEDED[@]} bulundu"
+log "Isolinux dizin icerigi:"
 ls -la /root/isolinux/ 2>/dev/null || true
-
-if [ "$ISOLINUX_FOUND" -eq 0 ]; then
-    warn "Hicbir isolinux dosyasi bulunamadi! Kurulu paketler kontrol ediliyor..."
-    dpkg -l | grep -E "isolinux|syslinux" || true
-fi
 
 # --- BUILD ---
 log "Imaj olusturuluyor... (bu islem 15-30 dakika surebilir)"

@@ -129,11 +129,12 @@ mkdir -p "$AUTOINSTALL_DIR"
 cp "${SCRIPT_DIR}/autoinstall/user-data" "${AUTOINSTALL_DIR}/user-data"
 cp "${SCRIPT_DIR}/autoinstall/meta-data" "${AUTOINSTALL_DIR}/meta-data"
 
-# Password hash'i build sirasinda olustur (guvenli)
+# Password hash'i build sirasinda random salt ile olustur
 if command -v openssl &>/dev/null; then
-    PASS_HASH=$(openssl passwd -6 -salt "klipperai" "klipper")
+    RANDOM_SALT=$(openssl rand -hex 8)
+    PASS_HASH=$(openssl passwd -6 -salt "${RANDOM_SALT}" "klipper")
     sed -i "s|password: .*|password: \"${PASS_HASH}\"|" "${AUTOINSTALL_DIR}/user-data"
-    log "Password hash olusturuldu (openssl)"
+    log "Password hash olusturuldu (random salt: ${RANDOM_SALT:0:4}...)"
 fi
 
 log "Autoinstall dosyalari eklendi: user-data, meta-data"

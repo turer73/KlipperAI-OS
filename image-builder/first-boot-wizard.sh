@@ -31,6 +31,13 @@ actsellistbox=black,cyan
 
 VERSION="2.1.0"
 BACKTITLE="KlipperAI-OS v${VERSION} Kurulum Sihirbazi"
+
+# Root kontrolu
+if [ "$(id -u)" -ne 0 ]; then
+    echo "HATA: Bu script root olarak calistirilmalidir." >&2
+    echo "Kullanim: sudo klipperai-wizard" >&2
+    exit 1
+fi
 LOG_FILE="/var/log/klipperai-wizard.log"
 KLIPPER_HOME="/home/klipper"
 INSTALL_DIR="/opt/klipperos-ai"

@@ -16,9 +16,9 @@ autoinstall:
   identity:
     hostname: klipperos
     username: klipper
-    # Sifre: klipper
-    # openssl passwd -6 -salt xyz klipper
-    password: "$6$xyz$rB5EHjJQ9wXZ.sMdyVRNFm4VQRzDjJgMsKYpXFQn5QFBxH8Ee4V1eT7WJQY5zPBhB6Zvxq2rS9QjX2q6hVJ/"
+    # Sifre: klipper (build sirasinda random salt ile yeniden hashlenir)
+    # Asagidaki hash placeholder'dir — build-image.sh otomatik degistirir
+    password: "$6$placeholder$WILL_BE_REPLACED_BY_BUILD_SCRIPT"
 
   # --- SSH ---
   ssh:
@@ -52,10 +52,10 @@ autoinstall:
     # Klipper kullanicisini gruplara ekle
     - curtin in-target -- usermod -aG sudo,tty,dialout,video,plugdev klipper
 
-    # Sudoers — belirli komutlar icin sifresiz sudo
+    # Sudoers — belirli komutlar icin sifresiz sudo (apt-get/dpkg haric — guvenlik)
     - curtin in-target -- bash -c 'echo "klipper ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/sbin/reboot, /usr/sbin/shutdown, /usr/sbin/poweroff" > /etc/sudoers.d/klipper'
     - curtin in-target -- bash -c 'echo "klipper ALL=(ALL) NOPASSWD: /usr/bin/nmcli, /usr/bin/tailscale" >> /etc/sudoers.d/klipper'
-    - curtin in-target -- bash -c 'echo "klipper ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/dpkg" >> /etc/sudoers.d/klipper'
+    - curtin in-target -- bash -c 'echo "klipper ALL=(ALL) NOPASSWD: /opt/klipperos-ai/scripts/*" >> /etc/sudoers.d/klipper'
     - curtin in-target -- chmod 440 /etc/sudoers.d/klipper
 
     # KlipperOS-AI dosyalarini ISO'dan kopyala

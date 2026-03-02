@@ -220,7 +220,7 @@ def cmd_goto(args):
         print(f"Hata: G-code dosyasi bulunamadi: {gcode_path}")
         sys.exit(1)
 
-    with open(gcode_path) as f:
+    with open(gcode_path, encoding="utf-8", errors="replace") as f:
         gcode_text = f.read()
 
     # Hedef katmani bul
@@ -229,7 +229,8 @@ def cmd_goto(args):
         print(f"Hata: Katman {target_layer} bulunamadi!")
         sys.exit(1)
 
-    print(f"  Katman {target_layer} bulundu (Z={z_height:.1f}mm, pozisyon={position})")
+    z_str = f"{z_height:.1f}" if z_height is not None else "?"
+    print(f"  Katman {target_layer} bulundu (Z={z_str}mm, pozisyon={position})")
     print(f"  Z offset: +{z_offset} mm")
 
     if dry_run:

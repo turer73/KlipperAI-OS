@@ -3,7 +3,9 @@
 # KlipperOS-AI — STANDARD Profile Installer
 # =============================================================================
 # LIGHT + KlipperScreen + Crowsnest + AI Print Monitor
-# Hedef: 2GB+ RAM, RPi 4 2GB, Orange Pi
+# Hedef: 1GB+ RAM — dusuk RAM/CPU otomatik algilanir ve optimize edilir
+# Dusuk RAM (<3GB) veya zayif CPU (<=2 core): AI Monitor atlanir,
+# bellek limitleri sikilastirilir, zram lzo-rle kullanilir
 # =============================================================================
 
 set -euo pipefail
@@ -21,6 +23,29 @@ KLIPPER_HOME="/home/${KLIPPER_USER}"
 log() { echo -e "${GREEN}[STANDARD]${NC} $*"; }
 warn() { echo -e "${YELLOW}[STANDARD]${NC} $*"; }
 err() { echo -e "${RED}[STANDARD]${NC} $*" >&2; }
+
+# --- Donanim Algilama ---
+LOW_RAM=false
+WEAK_CPU=false
+
+detect_hardware() {
+    local total_mb
+    total_mb=$(awk '/^MemTotal:/ { print int($2/1024) }' /proc/meminfo)
+    local cpu_cores
+    cpu_cores=$(nproc 2>/dev/null || echo 1)
+
+    log "Donanim: ${total_mb} MB RAM, ${cpu_cores} cekirdek"
+
+    if [ "$total_mb" -lt 3072 ]; then
+        LOW_RAM=true
+        log "Dusuk RAM tespit edildi (<3GB) — bellek optimizasyonlari aktif"
+    fi
+
+    if [ "$cpu_cores" -le 2 ]; then
+        WEAK_CPU=true
+        log "Dusuk cekirdek sayisi (<=2) — CPU optimizasyonlari aktif"
+    fi
+}
 
 # --- Once LIGHT profili kur ---
 install_light_base() {
@@ -46,12 +71,20 @@ install_klipperscreen() {
         fonts-freefont-ttf \
         xinput
 
+    local git_depth=""
+    local pip_cache=""
+    if [ "$LOW_RAM" = true ]; then
+        git_depth="--depth 1"
+        pip_cache="--no-cache-dir"
+    fi
+
     if [ -d "${KLIPPER_HOME}/KlipperScreen" ]; then
         log "KlipperScreen zaten kurulu, guncelleniyor..."
         cd "${KLIPPER_HOME}/KlipperScreen"
         sudo -u "$KLIPPER_USER" git pull --ff-only || true
     else
-        sudo -u "$KLIPPER_USER" git clone https://github.com/KlipperScreen/KlipperScreen.git \
+        sudo -u "$KLIPPER_USER" git clone $git_depth \
+            https://github.com/KlipperScreen/KlipperScreen.git \
             "${KLIPPER_HOME}/KlipperScreen"
     fi
 
@@ -61,16 +94,28 @@ install_klipperscreen() {
         sudo -u "$KLIPPER_USER" python3 -m venv "$ks_venv"
     fi
 
-    sudo -u "$KLIPPER_USER" "${ks_venv}/bin/pip" install --quiet \
+    sudo -u "$KLIPPER_USER" "${ks_venv}/bin/pip" install --quiet $pip_cache \
         -r "${KLIPPER_HOME}/KlipperScreen/scripts/KlipperScreen-requirements.txt" \
         2>/dev/null || \
-    sudo -u "$KLIPPER_USER" "${ks_venv}/bin/pip" install --quiet \
+    sudo -u "$KLIPPER_USER" "${ks_venv}/bin/pip" install --quiet $pip_cache \
         netifaces requests websocket-client
 
     # KlipperScreen config
     local ks_conf="${KLIPPER_HOME}/printer_data/config/KlipperScreen.conf"
     if [ ! -f "$ks_conf" ]; then
-        cat > "$ks_conf" << 'KSCONF'
+        if [ "$LOW_RAM" = true ]; then
+            cat > "$ks_conf" << 'KSCONF'
+[main]
+language: tr
+screen_blanking: 300
+show_cursor: True
+
+[printer KlipperOS-AI]
+moonraker_host: 127.0.0.1
+moonraker_port: 7125
+KSCONF
+        else
+            cat > "$ks_conf" << 'KSCONF'
 [main]
 language: tr
 theme: colorized
@@ -82,10 +127,16 @@ move_speed_z: 10
 moonraker_host: 127.0.0.1
 moonraker_port: 7125
 KSCONF
+        fi
         chown "$KLIPPER_USER:$KLIPPER_USER" "$ks_conf"
     fi
 
-    # Systemd service
+    # Systemd service — low-RAM'de Nice=10 (Klipper onceligi korur)
+    local ks_nice=""
+    if [ "$LOW_RAM" = true ] || [ "$WEAK_CPU" = true ]; then
+        ks_nice="Nice=10"
+    fi
+
     cat > /etc/systemd/system/KlipperScreen.service << KSSERVICE
 [Unit]
 Description=KlipperScreen Touch/Mouse UI
@@ -99,6 +150,7 @@ ExecStartPre=/usr/bin/xinit -- :0 -nolisten tcp &
 ExecStart=${ks_venv}/bin/python ${KLIPPER_HOME}/KlipperScreen/screen.py
 Restart=always
 RestartSec=10
+${ks_nice}
 
 [Install]
 WantedBy=multi-user.target
@@ -111,32 +163,47 @@ KSSERVICE
 install_crowsnest() {
     log "Crowsnest (kamera) kuruluyor..."
 
-    # Kamera bagimliliklari
-    apt-get install -y --no-install-recommends \
-        v4l-utils \
-        libjpeg62-turbo-dev \
-        ffmpeg
+    # Kamera bagimliliklari — low-RAM'de ffmpeg atla (agir)
+    if [ "$LOW_RAM" = true ]; then
+        apt-get install -y --no-install-recommends v4l-utils
+    else
+        apt-get install -y --no-install-recommends \
+            v4l-utils \
+            libjpeg62-turbo-dev \
+            ffmpeg
+    fi
+
+    local git_depth=""
+    if [ "$LOW_RAM" = true ]; then
+        git_depth="--depth 1"
+    fi
 
     if [ -d "${KLIPPER_HOME}/crowsnest" ]; then
         log "Crowsnest zaten kurulu, guncelleniyor..."
         cd "${KLIPPER_HOME}/crowsnest"
         sudo -u "$KLIPPER_USER" git pull --ff-only || true
     else
-        sudo -u "$KLIPPER_USER" git clone https://github.com/mainsail-crew/crowsnest.git \
+        sudo -u "$KLIPPER_USER" git clone $git_depth \
+            https://github.com/mainsail-crew/crowsnest.git \
             "${KLIPPER_HOME}/crowsnest"
     fi
 
     # Crowsnest config
     local cs_conf="${KLIPPER_HOME}/printer_data/config/crowsnest.conf"
     if [ ! -f "$cs_conf" ]; then
-        cat > "$cs_conf" << 'CSCONF'
+        local cs_log_level="verbose"
+        local cs_fps=15
+        if [ "$LOW_RAM" = true ]; then
+            cs_log_level="quiet"
+            cs_fps=10
+        fi
+        cat > "$cs_conf" << CSCONF
 #### crowsnest.conf — KlipperOS-AI
 
 [crowsnest]
 log_path: ~/printer_data/logs/crowsnest.log
-log_level: verbose
+log_level: ${cs_log_level}
 delete_log: true
-no_resolve: false
 
 [cam 1]
 mode: ustreamer
@@ -144,8 +211,7 @@ enable_rtsp: false
 port: 8080
 device: /dev/video0
 resolution: 640x480
-max_fps: 15
-v4l2ctl:
+max_fps: ${cs_fps}
 CSCONF
         chown "$KLIPPER_USER:$KLIPPER_USER" "$cs_conf"
     fi
@@ -157,6 +223,12 @@ CSCONF
     fi
 
     # Systemd service (crowsnest kendi kurmadiysa)
+    local cn_extra=""
+    if [ "$LOW_RAM" = true ] || [ "$WEAK_CPU" = true ]; then
+        cn_extra="Nice=15
+CPUQuota=30%"
+    fi
+
     if [ ! -f /etc/systemd/system/crowsnest.service ]; then
         cat > /etc/systemd/system/crowsnest.service << CSSERVICE
 [Unit]
@@ -169,6 +241,7 @@ User=${KLIPPER_USER}
 ExecStart=${KLIPPER_HOME}/crowsnest/crowsnest -c ${cs_conf}
 Restart=always
 RestartSec=10
+${cn_extra}
 
 [Install]
 WantedBy=multi-user.target
@@ -178,8 +251,14 @@ CSSERVICE
     log "Crowsnest kuruldu."
 }
 
-# --- AI Print Monitor Kur ---
+# --- AI Print Monitor Kur (dusuk RAM/CPU'da atlanir) ---
 install_ai_monitor() {
+    if [ "$LOW_RAM" = true ] || [ "$WEAK_CPU" = true ]; then
+        warn "AI Monitor ATLANIYOR — dusuk RAM/CPU tespit edildi"
+        warn "Sonra etkinlestirmek icin: sudo /opt/klipperos-ai/scripts/install-standard.sh"
+        return 0
+    fi
+
     log "AI Print Monitor kuruluyor..."
 
     local ai_dir="/opt/klipperos-ai/ai-monitor"
@@ -351,8 +430,14 @@ install_system_panels() {
         log "kos-zram servisi etkinlestirildi."
     fi
 
-    # cgroup bellek limitleri
-    local mem_limits="${SCRIPT_DIR}/../config/systemd/memory-limits"
+    # cgroup bellek limitleri — dusuk RAM'de sikistirilmis limitler kullan
+    local mem_limits
+    if [ "$LOW_RAM" = true ]; then
+        mem_limits="${SCRIPT_DIR}/../config/systemd/memory-limits-lowram"
+        log "Dusuk RAM bellek limitleri kullaniliyor"
+    else
+        mem_limits="${SCRIPT_DIR}/../config/systemd/memory-limits"
+    fi
     if [ -d "$mem_limits" ]; then
         for conf in "$mem_limits"/*.conf; do
             local svc_name
@@ -362,6 +447,37 @@ install_system_panels() {
         done
         systemctl daemon-reload
         log "Bellek limitleri yapilandirildi."
+    fi
+
+    # Dusuk RAM: Klipper ve Moonraker oncelik ayarlari (install-light sonrasi override)
+    if [ "$LOW_RAM" = true ] || [ "$WEAK_CPU" = true ]; then
+        # Klipper: en yuksek oncelik (Nice=-5)
+        mkdir -p /etc/systemd/system/klipper.service.d
+        cat > /etc/systemd/system/klipper.service.d/priority.conf << 'KPRI'
+[Service]
+Nice=-5
+KPRI
+        # Moonraker: orta oncelik (Nice=5)
+        mkdir -p /etc/systemd/system/moonraker.service.d
+        cat > /etc/systemd/system/moonraker.service.d/priority.conf << 'MPRI'
+[Service]
+Nice=5
+MPRI
+        systemctl daemon-reload
+        log "Servis oncelikleri ayarlandi (Klipper=-5, Moonraker=5)"
+    fi
+
+    # Dusuk RAM: gereksiz kernel modullerini kara listeye al
+    if [ "$LOW_RAM" = true ]; then
+        cat > /etc/modprobe.d/klipperos-lowram.conf << 'MODBL'
+# KlipperOS-AI: dusuk RAM optimizasyonu — gereksiz moduller devre disi
+blacklist bluetooth
+blacklist btusb
+blacklist snd_pcm
+blacklist snd_hda_intel
+blacklist pcspkr
+MODBL
+        log "Gereksiz kernel modulleri kara listeye alindi"
     fi
 
     # Logrotate config
@@ -382,10 +498,46 @@ enable_standard_services() {
     log "STANDARD servisler etkinlestiriliyor..."
 
     systemctl daemon-reload
-    systemctl enable crowsnest KlipperScreen klipperos-ai-monitor 2>/dev/null || true
-    systemctl start crowsnest 2>/dev/null || true
+    systemctl enable KlipperScreen 2>/dev/null || true
+
+    # AI Monitor — sadece yeterli donanim varsa
+    if [ "$LOW_RAM" = false ] && [ "$WEAK_CPU" = false ]; then
+        systemctl enable klipperos-ai-monitor 2>/dev/null || true
+    fi
+
+    # Crowsnest — kamera algilama
+    if ls /dev/video* 1>/dev/null 2>&1; then
+        log "Kamera tespit edildi — crowsnest etkinlestiriliyor"
+        systemctl enable crowsnest 2>/dev/null || true
+        systemctl start crowsnest 2>/dev/null || true
+    else
+        warn "Kamera bulunamadi — crowsnest devre disi (sonra takinca otomatik baslar)"
+        systemctl disable crowsnest 2>/dev/null || true
+    fi
 
     log "Servisler hazir."
+}
+
+# --- FlowGuard Config Sec ---
+install_flowguard_config() {
+    local klipper_cfg_dir="${KLIPPER_HOME}/printer_data/config"
+    local flowguard_src
+
+    if [ "$LOW_RAM" = true ] || [ "$WEAK_CPU" = true ]; then
+        # Sensor-only: L1 (filament) + L3 (StallGuard) — daemon gerektirmez
+        flowguard_src="${SCRIPT_DIR}/../config/klipper/kos_flowguard_lowram.cfg"
+        log "FlowGuard: sensor-only mod (L1+L3)"
+    else
+        # Full: L1+L2+L3+L4 — AI Monitor daemon ile entegre
+        flowguard_src="${SCRIPT_DIR}/../config/klipper/kos_flowguard.cfg"
+        log "FlowGuard: tam mod (L1+L2+L3+L4)"
+    fi
+
+    if [ -f "$flowguard_src" ]; then
+        cp "$flowguard_src" "${klipper_cfg_dir}/kos_flowguard.cfg"
+        chown "$KLIPPER_USER:$KLIPPER_USER" "${klipper_cfg_dir}/kos_flowguard.cfg"
+        log "FlowGuard config kopyalandi."
+    fi
 }
 
 # --- Ana ---
@@ -393,6 +545,7 @@ main() {
     echo -e "${CYAN}╔══════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║  KlipperOS-AI — STANDARD Profile Installer   ║${NC}"
     echo -e "${CYAN}║  LIGHT + KlipperScreen + Crowsnest + AI      ║${NC}"
+    echo -e "${CYAN}║  Donanim otomatik algilanir ve optimize edilir║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════╝${NC}"
     echo ""
 
@@ -401,13 +554,18 @@ main() {
         exit 1
     fi
 
+    # Donanim algilama — tum kararlari bu belirler
+    detect_hardware
+
     # RAM kontrolu
     local total_mb
-    total_mb=$(( $(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024 ))
-    if [ "$total_mb" -lt 1536 ]; then
-        warn "Uyari: ${total_mb} MB RAM tespit edildi."
-        warn "STANDARD profil icin 2GB+ onerilir."
-        warn "Devam ediliyor..."
+    total_mb=$(awk '/^MemTotal:/ { print int($2/1024) }' /proc/meminfo)
+    if [ "$total_mb" -lt 1024 ]; then
+        err "${total_mb} MB RAM — STANDARD profil icin en az 1GB gerekli."
+        err "LIGHT profili deneyin: install-light.sh"
+        exit 1
+    elif [ "$total_mb" -lt 2048 ]; then
+        warn "${total_mb} MB RAM — dusuk RAM modu aktif, AI Monitor atlanacak"
     fi
 
     install_light_base
@@ -416,18 +574,25 @@ main() {
     install_ai_monitor
     install_input_shaping_assistant
     install_system_panels
+    install_flowguard_config
     update_moonraker_config
     enable_standard_services
 
     echo ""
-    echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║  STANDARD profil kurulumu tamamlandi!        ║${NC}"
-    echo -e "${GREEN}║                                              ║${NC}"
-    echo -e "${GREEN}║  Web UI:    http://klipperos.local           ║${NC}"
-    echo -e "${GREEN}║  API:       http://klipperos.local:7125      ║${NC}"
-    echo -e "${GREEN}║  Kamera:    http://klipperos.local:8080      ║${NC}"
-    echo -e "${GREEN}║  AI Monitor: aktif (10sn aralik)             ║${NC}"
-    echo -e "${GREEN}╚══════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║  STANDARD profil kurulumu tamamlandi!            ║${NC}"
+    echo -e "${GREEN}║                                                  ║${NC}"
+    echo -e "${GREEN}║  Web UI:    http://klipperos.local               ║${NC}"
+    echo -e "${GREEN}║  API:       http://klipperos.local:7125          ║${NC}"
+    echo -e "${GREEN}║  Kamera:    http://klipperos.local:8080          ║${NC}"
+    if [ "$LOW_RAM" = false ] && [ "$WEAK_CPU" = false ]; then
+        echo -e "${GREEN}║  AI Monitor: aktif (10sn aralik)                 ║${NC}"
+        echo -e "${GREEN}║  FlowGuard:  tam mod (L1+L2+L3+L4)              ║${NC}"
+    else
+        echo -e "${YELLOW}║  AI Monitor: atlanmis (dusuk donanim)            ║${NC}"
+        echo -e "${YELLOW}║  FlowGuard:  sensor-only (L1+L3)                ║${NC}"
+    fi
+    echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
 }
 
 main "$@"

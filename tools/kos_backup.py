@@ -13,6 +13,7 @@ Kullanim:
 
 import argparse
 import os
+import re
 import shutil
 import sys
 import tarfile
@@ -20,8 +21,37 @@ from datetime import datetime
 from pathlib import Path
 
 KLIPPER_HOME = Path(os.environ.get("KLIPPER_HOME", "/home/klipper"))
-BACKUP_DIR = Path("/var/backups/klipperos-ai")
+BACKUP_DIR = Path(os.environ.get("KOS_BACKUP_DIR", "/var/backups/klipperos-ai"))
 MAX_BACKUPS = 10
+
+# Geri yukleme icin izin verilen dizinler (path traversal korunmasi)
+_ALLOWED_RESTORE_PREFIXES = (
+    "home/klipper/printer_data/",
+    "etc/klipperos-ai/",
+)
+
+
+def _safe_extractall(tar: tarfile.TarFile, dest: str) -> None:
+    """tar.extractall path traversal korunmali versiyon (CVE-2007-4559)."""
+    dest_path = Path(dest).resolve()
+    for member in tar.getmembers():
+        member_path = (dest_path / member.name).resolve()
+        # Hedef dizin disina cikmayi engelle
+        if not str(member_path).startswith(str(dest_path)):
+            raise tarfile.TarError(
+                f"Guvenlik hatasi: yol traversal tespit edildi: {member.name}"
+            )
+        # Sadece izin verilen dizinlere geri yukleme yap
+        if not any(member.name.startswith(p) for p in _ALLOWED_RESTORE_PREFIXES):
+            raise tarfile.TarError(
+                f"Guvenlik hatasi: izin verilmeyen yol: {member.name}"
+            )
+    tar.extractall(path=dest, filter="data")
+
+
+def _validate_backup_name(name: str) -> bool:
+    """Yedek adinin guvenli oldugunu dogrula (path injection korunmasi)."""
+    return bool(re.match(r'^[\w\-\.]+$', name))
 
 # Yedeklenecek dizinler
 BACKUP_SOURCES = [
@@ -79,6 +109,10 @@ def cmd_restore(args):
     """Yedekten geri yukle."""
     backup_name = args.backup_name
 
+    if not _validate_backup_name(backup_name):
+        print(f"Hata: Gecersiz yedek adi: {backup_name}")
+        sys.exit(1)
+
     # Tam yol veya isim ile bul
     backup_file = BACKUP_DIR / backup_name
     if not backup_file.exists():
@@ -111,9 +145,9 @@ def cmd_restore(args):
             if source_dir.exists():
                 tar.add(str(source_dir), arcname=str(source_dir.relative_to("/")))
 
-    # Geri yukle
+    # Geri yukle (path traversal korunmali)
     with tarfile.open(str(backup_file), "r:gz") as tar:
-        tar.extractall(path="/")
+        _safe_extractall(tar, "/")
 
     print(f"✓ Geri yukleme tamamlandi: {backup_file.name}")
     print("  Servisleri yeniden baslatin: sudo systemctl restart klipper moonraker")
@@ -149,6 +183,9 @@ def cmd_list(_args):
 def cmd_delete(args):
     """Yedek sil."""
     backup_name = args.backup_name
+    if not _validate_backup_name(backup_name):
+        print(f"Hata: Gecersiz yedek adi: {backup_name}")
+        sys.exit(1)
     backup_file = BACKUP_DIR / backup_name
     if not backup_file.exists():
         backup_file = BACKUP_DIR / f"klipperos-backup-{backup_name}.tar.gz"
@@ -230,7 +267,7 @@ def restore_backup(backup_path: str, restore_dir: str) -> bool:
     rd.mkdir(parents=True, exist_ok=True)
 
     with tarfile.open(str(bp), "r:gz") as tar:
-        tar.extractall(path=str(rd))
+        _safe_extractall(tar, str(rd))
     return True
 
 

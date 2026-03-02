@@ -9,7 +9,10 @@ Also provides flow rate suggestions based on load deviation from baseline.
 from collections import deque
 from typing import Optional
 
-from heater_analyzer import FlowState
+try:
+    from heater_analyzer import FlowState
+except ImportError:
+    from .heater_analyzer import FlowState
 
 
 class ExtruderLoadMonitor:

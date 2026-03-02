@@ -1,0 +1,124 @@
+# =============================================================================
+# KlipperOS-AI — Ollama Model Profiles
+# =============================================================================
+# Path: /etc/klipperos-ai/ollama-profiles.yml
+#
+# Profil bazli Ollama model yapilandirmasi.
+# Qwen3 4B (birincil), Qwen3 1.7B (hizli), uzak AI (yedek).
+# =============================================================================
+
+# --- Model tanimlari ---
+models:
+  primary:
+    name: "qwen3:4b"
+    description: "Ana model — 3D yazici asistan"
+    quantization: "Q4_K_M"
+    ram_required_mb: 3500
+    context_length: 2048
+    use_case: "Klipper konfigurasyonu, G-code analizi, baski optimizasyonu"
+
+  fast:
+    name: "qwen3:1.7b"
+    description: "Hizli model — basit yazici sorgulari"
+    quantization: "Q4_K_M"
+    ram_required_mb: 1800
+    context_length: 2048
+    use_case: "Basit sorular, hizli yanit gereken durumlar"
+
+  coder:
+    name: "qwen2.5-coder:3b"
+    description: "Kod modeli — Klipper makro ve G-code gelistirme"
+    quantization: "Q4_K_M"
+    ram_required_mb: 2500
+    context_length: 2048
+    use_case: "G-code yazma, Klipper makro gelistirme, Jinja2 sablonlari"
+
+# --- Profil bazli model atamasi ---
+profiles:
+  LIGHT:
+    # 512MB-1GB RAM: Yerel model yok, uzak AI kullan
+    local_models: []
+    inference_backend: "rules"
+    fallback: "remote"
+    description: "Yerel model yok — uzak AI sunucu veya kural tabanli"
+
+  STANDARD:
+    # 1GB-4GB RAM: Hafif model
+    local_models:
+      - "qwen3:1.7b"
+    inference_backend: "ollama"
+    default_model: "qwen3:1.7b"
+    fallback: "rules"
+    description: "Qwen3 1.7B — hafif ve hizli"
+
+  FULL:
+    # 4GB+ RAM: Tam model seti
+    local_models:
+      - "qwen3:4b"
+      - "qwen3:1.7b"
+    inference_backend: "ollama"
+    default_model: "qwen3:4b"
+    fast_model: "qwen3:1.7b"
+    fallback: "qwen3:1.7b"
+    description: "Qwen3 4B (ana) + 1.7B (hizli yedek)"
+
+# --- Ollama calisma parametreleri ---
+ollama:
+  # CPU-only ayarlar (Raspberry Pi / SBC icin)
+  environment:
+    OLLAMA_NUM_GPU: "0"
+    OLLAMA_MAX_LOADED_MODELS: "1"
+    OLLAMA_KEEP_ALIVE: "5m"
+    OLLAMA_HOST: "127.0.0.1:11434"
+
+  # CPU thread ayari (otomatik: nproc)
+  # Manuel ayar icin:
+  # OLLAMA_NUM_THREAD: "4"
+
+  # Model parametreleri
+  default_options:
+    num_ctx: 2048
+    num_predict: 512
+    temperature: 0.7
+    top_p: 0.9
+    repeat_penalty: 1.1
+    num_thread: 0          # 0 = otomatik (nproc)
+
+  # Performans ayarlari
+  performance:
+    mmap: true
+    mlock: false           # SBC'lerde false (dusuk RAM)
+    batch_size: 512
+
+# --- Uzak AI sunucu ---
+remote:
+  enabled: true
+  discovery: "tailscale"   # tailscale veya manual
+  port: 11434
+  timeout_sec: 10
+  preferred_server: ""     # Bos = otomatik kesfet
+  fallback_to_local: true
+  fallback_to_rules: true
+
+# --- Model Modelfile sablonlari ---
+modelfiles:
+  klipperos-ai-agent:
+    base: "qwen3:4b"
+    system: |
+      Sen KlipperOS-AI asistanisin. 3D yazici yonetimi, Klipper konfigurasyonu,
+      baski optimizasyonu ve hata tespiti konusunda uzmansin.
+      Turkce yanit ver. Kisa ve net cevap ver.
+      Guvenlik: Tehlikeli G-code komutlarini (M112, FIRMWARE_RESTART) onay almadan calistirma.
+    parameters:
+      temperature: 0.5
+      num_ctx: 2048
+
+  klipperos-ai-coder:
+    base: "qwen2.5-coder:3b"
+    system: |
+      Sen bir 3D yazici yazilim gelistirme asistanisin.
+      Klipper makrolari, Jinja2 sablonlari ve G-code yazarken aciklama ekle.
+      Turkce aciklama, Ingilizce kod yorumlari kullan.
+    parameters:
+      temperature: 0.3
+      num_ctx: 2048

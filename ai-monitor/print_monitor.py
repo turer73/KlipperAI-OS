@@ -24,11 +24,18 @@ from datetime import datetime
 
 import requests
 
-from frame_capture import FrameCapture
-from spaghetti_detect import SpaghettiDetector
-from flow_guard import FlowGuard, FlowSignal, FlowVerdict
-from heater_analyzer import HeaterDutyAnalyzer
-from extruder_monitor import ExtruderLoadMonitor
+try:
+    from frame_capture import FrameCapture
+    from spaghetti_detect import SpaghettiDetector
+    from flow_guard import FlowGuard, FlowSignal, FlowVerdict
+    from heater_analyzer import HeaterDutyAnalyzer
+    from extruder_monitor import ExtruderLoadMonitor
+except ImportError:
+    from .frame_capture import FrameCapture
+    from .spaghetti_detect import SpaghettiDetector
+    from .flow_guard import FlowGuard, FlowSignal, FlowVerdict
+    from .heater_analyzer import HeaterDutyAnalyzer
+    from .extruder_monitor import ExtruderLoadMonitor
 
 # --- Logging ---
 logging.basicConfig(
@@ -197,7 +204,7 @@ class PrintMonitor:
         self.flow_guard = FlowGuard()
         self.heater_analyzer = HeaterDutyAnalyzer()
         self.extruder_monitor = ExtruderLoadMonitor()
-        self._flowguard_enabled = bool(os.environ.get("FLOWGUARD_ENABLED", "1"))
+        self._flowguard_enabled = os.environ.get("FLOWGUARD_ENABLED", "1").lower() not in ("0", "false", "no", "off")
         self._calibration_done = False
         self._calibration_count = 0
         self._calibration_heater_samples = []
@@ -278,7 +285,7 @@ class PrintMonitor:
 
         # --- FlowGuard 4-Layer Check ---
         if self._flowguard_enabled:
-            self._flowguard_cycle()
+            self._flowguard_cycle(ai_action=action)
 
     def _handle_action(self, action: str, result: dict):
         """Tespit sonucuna gore aksiyon al."""
@@ -332,7 +339,7 @@ class PrintMonitor:
         logger.info("Sinyal alindi (%s). Monitor durduruluyor...", signum)
         self._running = False
 
-    def _flowguard_cycle(self):
+    def _flowguard_cycle(self, ai_action: str = "none"):
         """FlowGuard 4-layer detection cycle."""
         # Kalibrasyon asamasi
         if not self._calibration_done:
@@ -382,10 +389,13 @@ class PrintMonitor:
             else:
                 signals.append(FlowSignal.OK)
 
-        # L4: AI Camera (from existing detection)
-        # The main _check_cycle already runs AI detection
-        # Use the last AI result as L4 signal
-        signals.append(FlowSignal.OK)  # Default OK, overridden below
+        # L4: AI Camera — use actual AI detection result from _check_cycle
+        if ai_action == "pause":
+            signals.append(FlowSignal.ANOMALY)
+        elif ai_action == "notify":
+            signals.append(FlowSignal.OK)  # Warning but not anomaly yet
+        else:
+            signals.append(FlowSignal.OK)
 
         # Oylama
         verdict = self.flow_guard.evaluate(signals)

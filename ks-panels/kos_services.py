@@ -126,7 +126,9 @@ try:
 
         def _refresh_service(self, name: str):
             status = self.api.get_service_status(name)
-            svc = {"name": name, "active": status.get("active", False)}
+            # get_service_status returns a str, not dict
+            active = (status == "active") if isinstance(status, str) else status.get("active", False)
+            svc = {"name": name, "active": active}
             if name in self._rows:
                 self._rows[name]["label"].set_text(format_service_status(svc))
 

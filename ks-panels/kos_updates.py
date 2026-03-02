@@ -45,12 +45,19 @@ def _check_repo(name: str, path: str) -> dict:
     """Check a single repo for updates."""
     try:
         from tools.kos_update import git_check_updates
-        info = git_check_updates(path)
+        from pathlib import Path
+        has_update, message = git_check_updates(Path(path))
+        # Parse commit count from message like "5 yeni commit"
+        behind_count = 0
+        if has_update:
+            parts = message.split()
+            if parts and parts[0].isdigit():
+                behind_count = int(parts[0])
         return {
             "name": name,
-            "has_updates": info.get("has_updates", False),
-            "behind_count": info.get("behind_count", 0),
-            "current_sha": info.get("current_sha", "")[:7],
+            "has_updates": has_update,
+            "behind_count": behind_count,
+            "current_sha": "",
         }
     except Exception as exc:
         logger.warning("Update check basarisiz %s: %s", name, exc)

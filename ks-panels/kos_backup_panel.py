@@ -16,7 +16,7 @@ from kos_system_api import KosSystemAPI
 logger = logging.getLogger("KOS-Backup")
 
 PANEL_TITLE = "Yedekleme"
-BACKUP_DIR = os.path.expanduser("~/printer_data/backups")
+BACKUP_DIR = os.environ.get("KOS_BACKUP_DIR", "/var/backups/klipperos-ai")
 
 
 def get_panel_data() -> dict:

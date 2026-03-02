@@ -93,9 +93,9 @@ def cmd_system(_args):
     """Sistem paketlerini guncelle."""
     print("Sistem paketleri guncelleniyor...")
 
-    subprocess.run(["apt-get", "update", "-qq"], check=False)
-    subprocess.run(["apt-get", "upgrade", "-y"], check=False)
-    subprocess.run(["apt-get", "autoremove", "-y", "--purge"], check=False)
+    subprocess.run(["sudo", "apt-get", "update", "-qq"], check=False)
+    subprocess.run(["sudo", "apt-get", "upgrade", "-y"], check=False)
+    subprocess.run(["sudo", "apt-get", "autoremove", "-y", "--purge"], check=False)
 
     print("Sistem guncellendi.")
 
@@ -109,7 +109,7 @@ def cmd_klipper(_args):
             if git_update(path):
                 print(f"  ✓ {name} guncellendi")
                 # Servisi yeniden baslat
-                subprocess.run(["systemctl", "restart", name], check=False)
+                subprocess.run(["sudo", "systemctl", "restart", name], check=False)
                 print(f"  ✓ {name} servisi yeniden baslatildi")
             else:
                 print(f"  ✗ {name} guncellenemedi")
@@ -160,7 +160,7 @@ def cmd_all(_args):
     # Servisleri yeniden baslat
     print("\nServisler yeniden baslatiliyor...")
     for svc in ["klipper", "moonraker", "nginx"]:
-        subprocess.run(["systemctl", "restart", svc], check=False)
+        subprocess.run(["sudo", "systemctl", "restart", svc], check=False)
     print("✓ Guncelleme tamamlandi.")
 
 

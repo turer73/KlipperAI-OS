@@ -33,13 +33,14 @@ class HeaterDutyAnalyzer:
     def add_sample(self, duty_cycle: float) -> None:
         """Add a duty cycle sample (0.0 to 1.0)."""
         self._window.append(duty_cycle)
-        if self.baseline is None:
+        if self.baseline is None and len(self._calibration_samples) < self.calibration_count:
             self._calibration_samples.append(duty_cycle)
 
     def calibrate(self) -> None:
         """Compute baseline from collected calibration samples."""
         if self._calibration_samples:
             self.baseline = sum(self._calibration_samples) / len(self._calibration_samples)
+            self._calibration_samples.clear()  # Bellek serbest birak
 
     def check_flow(self) -> FlowState:
         """Check flow state based on duty cycle analysis."""

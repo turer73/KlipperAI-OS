@@ -28,8 +28,8 @@ PROFILES = {
         "components": ["Klipper", "Moonraker", "Mainsail"],
     },
     "STANDARD": {
-        "description": "Standart — + KlipperScreen + Crowsnest + AI Monitor",
-        "min_ram_mb": 2048,
+        "description": "Standart — + KlipperScreen + Crowsnest + AI Monitor (dusuk RAM otomatik algilanir)",
+        "min_ram_mb": 1024,
         "services": [
             "klipper", "moonraker", "nginx", "avahi-daemon",
             "KlipperScreen", "crowsnest", "klipperos-ai-monitor",

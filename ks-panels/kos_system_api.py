@@ -179,14 +179,11 @@ class KosSystemAPI:
 
     def get_uptime(self) -> str:
         """Return system uptime as a human-readable string (Xg Ys Zdk)."""
-        result = self._run(["cat", "/proc/uptime"])
-        if result.returncode != 0:
-            return "bilinmiyor"
-
         try:
-            raw = result.stdout.strip().split()[0] if " " in result.stdout else result.stdout.strip()
+            with open("/proc/uptime") as f:
+                raw = f.read().strip().split()[0]
             total = int(float(raw))
-        except (ValueError, IndexError):
+        except (OSError, ValueError, IndexError):
             return "bilinmiyor"
 
         days = total // 86400
@@ -217,9 +214,13 @@ class KosSystemAPI:
         for line in result.stdout.strip().splitlines():
             parts = line.split(":")
             if len(parts) >= 3:
+                try:
+                    signal_val = int(parts[1])
+                except (ValueError, TypeError):
+                    signal_val = 0
                 networks.append({
                     "ssid": parts[0],
-                    "signal": parts[1],
+                    "signal": signal_val,
                     "security": parts[2],
                 })
         return networks

@@ -48,52 +48,53 @@ autoinstall:
     - gnupg
 
   # --- Kurulum sonrasi komutlar ---
+  # NOT: Tum komutlar YAML ": " mapping tuzagindan kacinmak icin cift tirnak icinde
   late-commands:
     # Klipper kullanicisini gruplara ekle
-    - curtin in-target -- usermod -aG sudo,tty,dialout,video,plugdev klipper
+    - "curtin in-target -- usermod -aG sudo,tty,dialout,video,plugdev klipper"
 
     # Sudoers — belirli komutlar icin sifresiz sudo (apt-get/dpkg haric — guvenlik)
-    - curtin in-target -- bash -c 'echo "klipper ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/sbin/reboot, /usr/sbin/shutdown, /usr/sbin/poweroff" > /etc/sudoers.d/klipper'
-    - curtin in-target -- bash -c 'echo "klipper ALL=(ALL) NOPASSWD: /usr/bin/nmcli, /usr/bin/tailscale" >> /etc/sudoers.d/klipper'
-    - curtin in-target -- bash -c 'echo "klipper ALL=(ALL) NOPASSWD: /opt/klipperos-ai/scripts/*" >> /etc/sudoers.d/klipper'
-    - curtin in-target -- chmod 440 /etc/sudoers.d/klipper
+    - "curtin in-target -- bash -c 'echo \"klipper ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/sbin/reboot, /usr/sbin/shutdown, /usr/sbin/poweroff\" > /etc/sudoers.d/klipper'"
+    - "curtin in-target -- bash -c 'echo \"klipper ALL=(ALL) NOPASSWD: /usr/bin/nmcli, /usr/bin/tailscale\" >> /etc/sudoers.d/klipper'"
+    - "curtin in-target -- bash -c 'echo \"klipper ALL=(ALL) NOPASSWD: /opt/klipperos-ai/scripts/*\" >> /etc/sudoers.d/klipper'"
+    - "curtin in-target -- chmod 440 /etc/sudoers.d/klipper"
 
     # KlipperOS-AI dosyalarini ISO'dan kopyala
-    - mkdir -p /target/opt/klipperos-ai
-    - cp -r /cdrom/klipperos-ai/* /target/opt/klipperos-ai/ || true
-    - curtin in-target -- chmod +x /opt/klipperos-ai/scripts/*.sh 2>/dev/null || true
+    - "mkdir -p /target/opt/klipperos-ai"
+    - "cp -r /cdrom/klipperos-ai/. /target/opt/klipperos-ai/ || true"
+    - "curtin in-target -- chmod +x /opt/klipperos-ai/scripts/*.sh 2>/dev/null || true"
 
     # Klipper dizin yapisi
-    - curtin in-target -- mkdir -p /home/klipper/printer_data/config
-    - curtin in-target -- mkdir -p /home/klipper/printer_data/logs
-    - curtin in-target -- mkdir -p /home/klipper/printer_data/gcodes
-    - curtin in-target -- mkdir -p /home/klipper/printer_data/database
-    - curtin in-target -- chown -R klipper:klipper /home/klipper/printer_data
-    - curtin in-target -- chown -R klipper:klipper /opt/klipperos-ai
+    - "curtin in-target -- mkdir -p /home/klipper/printer_data/config"
+    - "curtin in-target -- mkdir -p /home/klipper/printer_data/logs"
+    - "curtin in-target -- mkdir -p /home/klipper/printer_data/gcodes"
+    - "curtin in-target -- mkdir -p /home/klipper/printer_data/database"
+    - "curtin in-target -- chown -R klipper:klipper /home/klipper/printer_data"
+    - "curtin in-target -- chown -R klipper:klipper /opt/klipperos-ai"
 
     # Wizard'i kopyala
-    - cp /cdrom/klipperos-ai/image-builder/first-boot-wizard.sh /target/usr/local/bin/klipperai-wizard || true
-    - chmod +x /target/usr/local/bin/klipperai-wizard
+    - "cp /cdrom/klipperos-ai/image-builder/first-boot-wizard.sh /target/usr/local/bin/klipperai-wizard || true"
+    - "chmod +x /target/usr/local/bin/klipperai-wizard"
 
     # First-boot systemd service
-    - cp /cdrom/klipperos-ai/systemd/klipperai-first-boot.service /target/etc/systemd/system/ || true
-    - curtin in-target -- systemctl enable klipperai-first-boot.service
+    - "cp /cdrom/klipperos-ai/systemd/klipperai-first-boot.service /target/etc/systemd/system/ || true"
+    - "curtin in-target -- systemctl enable klipperai-first-boot.service"
 
     # Sentinel dosyasi (wizard sadece ilk boot'ta calisir)
-    - touch /target/opt/klipperos-ai/.first-boot
+    - "touch /target/opt/klipperos-ai/.first-boot"
 
     # Ertelenmis paket listesi (wizard tarafindan kullanilacak)
-    - mkdir -p /target/opt/klipperos-ai/config/package-lists
-    - cp /cdrom/klipperos-ai/config/package-lists/klipperos-deferred.list /target/opt/klipperos-ai/config/package-lists/ || true
+    - "mkdir -p /target/opt/klipperos-ai/config/package-lists"
+    - "cp /cdrom/klipperos-ai/config/package-lists/klipperos-deferred.list /target/opt/klipperos-ai/config/package-lists/ || true"
 
     # NetworkManager'i etkinlestir (netplan yerine)
-    - curtin in-target -- systemctl enable NetworkManager
-    - curtin in-target -- systemctl enable avahi-daemon
-    - curtin in-target -- systemctl enable earlyoom
+    - "curtin in-target -- systemctl enable NetworkManager"
+    - "curtin in-target -- systemctl enable avahi-daemon"
+    - "curtin in-target -- systemctl enable earlyoom"
 
     # Gereksiz apt timer'lari devre disi birak (dusuk kaynak kullanimi)
-    - curtin in-target -- systemctl disable apt-daily.timer || true
-    - curtin in-target -- systemctl disable apt-daily-upgrade.timer || true
+    - "curtin in-target -- systemctl disable apt-daily.timer || true"
+    - "curtin in-target -- systemctl disable apt-daily-upgrade.timer || true"
 
     # Timezone
-    - curtin in-target -- timedatectl set-timezone Europe/Istanbul || true
+    - "curtin in-target -- timedatectl set-timezone Europe/Istanbul || true"

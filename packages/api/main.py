@@ -1,4 +1,6 @@
 """FastAPI application factory."""
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,12 +33,14 @@ def create_app() -> FastAPI:
     from .routers import files as files_router
     from .routers import system as system_router
     from .routers import flowguard as flowguard_router
+    from .routers import ws as ws_router
     app.include_router(auth_router.router)
     app.include_router(printer_router.router)
     app.include_router(control_router.router)
     app.include_router(files_router.router)
     app.include_router(system_router.router)
     app.include_router(flowguard_router.router)
+    app.include_router(ws_router.router)
     return app
 
 app = create_app()

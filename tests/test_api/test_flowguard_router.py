@@ -1,7 +1,6 @@
 """FlowGuard router endpoint testleri."""
 import pytest
 import json
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 from fastapi.testclient import TestClient

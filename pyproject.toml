@@ -66,6 +66,7 @@ kos-firstrun = "tools.kos_firstrun:main"
 kos-dashboard = "tools.kos_dashboard:main"
 kos-agent = "tools.kos_agent:main"
 kos-api = "packages.api.main:main"
+kos-install = "packages.installer.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["tools*", "ai-monitor*", "ks-panels*", "packages*"]

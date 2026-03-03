@@ -8,12 +8,12 @@
 # Kullanim:
 #   sudo ./build-netinstall-image.sh
 #
-# Hedef boyut: 200-350 MB (firmware dahil: ~500 MB)
+# Hedef boyut: ~1 GB (firmware dahil, varsayilan)
 #
 # Ortam degiskenleri:
 #   SKIP_DEBOOTSTRAP=1   — Onceki rootfs'i yeniden kullan
 #   CLEANUP=0            — Gecici dosyalari silme
-#   WITH_FIRMWARE=1      — linux-firmware dahil et (WiFi icin, +300 MB)
+#   NO_FIRMWARE=1        — linux-firmware HARIC tut (WiFi calismaz, ISO ~350 MB)
 #   ARCH=arm64           — Mimari degistir (varsayilan: amd64)
 # =============================================================================
 
@@ -160,15 +160,14 @@ PACKAGES=(
     curl
 )
 
-# Opsiyonel: linux-firmware (WiFi surucileri — +300 MB)
-if [ "${WITH_FIRMWARE:-}" = "1" ]; then
-    PACKAGES+=(linux-firmware)
-    warn "linux-firmware DAHIL — ISO boyutu ~500-600 MB olacak"
-    warn "WiFi gerektirmeyen sistemlerde WITH_FIRMWARE=1 kaldirilabilir"
-else
+# linux-firmware (WiFi surucileri — varsayilan DAHIL)
+# Kucuk ISO icin: NO_FIRMWARE=1 ile calistirin
+if [ "${NO_FIRMWARE:-}" = "1" ]; then
     info "linux-firmware DAHIL DEGIL — ISO daha kucuk (~200-350 MB)"
-    info "WiFi icin: WITH_FIRMWARE=1 ile tekrar calistirin"
-    info "veya Ethernet kablo kullanin"
+    info "WiFi icin: NO_FIRMWARE=1 kaldirilmali"
+else
+    PACKAGES+=(linux-firmware)
+    info "linux-firmware DAHIL — WiFi destegi aktif"
 fi
 
 PKG_LIST="${PACKAGES[*]}"
@@ -496,10 +495,10 @@ if [ -f "$OUTPUT_ISO" ] && [ -s "$OUTPUT_ISO" ]; then
     log "squashfs:  ${SQUASHFS_SIZE}"
     echo ""
 
-    if [ "$ISO_SIZE_MB" -lt 400 ]; then
-        echo -e "${GREEN}  Boyut hedefi basarili! (< 400 MB)${NC}"
+    if [ "$ISO_SIZE_MB" -lt 1200 ]; then
+        echo -e "${GREEN}  Boyut hedefi basarili! (firmware dahil)${NC}"
     else
-        echo -e "${YELLOW}  ISO beklentiden buyuk. WITH_FIRMWARE kaldirildi mi?${NC}"
+        echo -e "${YELLOW}  ISO beklentiden buyuk (> 1.2 GB).${NC}"
     fi
 
     echo ""
@@ -514,7 +513,7 @@ if [ -f "$OUTPUT_ISO" ] && [ -s "$OUTPUT_ISO" ]; then
     echo ""
     echo -e "${CYAN}NOT: Bu ISO sadece boot + ag icin yeterli.${NC}"
     echo -e "${CYAN}Klipper, AI, diger paketler ilk boot'ta internetten indirilir.${NC}"
-    echo -e "${CYAN}Ethernet kablo veya WITH_FIRMWARE=1 (WiFi) onerilir.${NC}"
+    echo -e "${CYAN}WiFi ve Ethernet destegi varsayilan olarak aktif.${NC}"
 
     if [ "${CLEANUP:-1}" = "1" ]; then
         rm -rf "$ISO_DIR"

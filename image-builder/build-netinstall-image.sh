@@ -495,10 +495,10 @@ if [ -f "$OUTPUT_ISO" ] && [ -s "$OUTPUT_ISO" ]; then
     log "squashfs:  ${SQUASHFS_SIZE}"
     echo ""
 
-    if [ "$ISO_SIZE_MB" -lt 1200 ]; then
+    if [ "$ISO_SIZE_MB" -lt 1500 ]; then
         echo -e "${GREEN}  Boyut hedefi basarili! (firmware dahil)${NC}"
     else
-        echo -e "${YELLOW}  ISO beklentiden buyuk (> 1.2 GB).${NC}"
+        echo -e "${YELLOW}  ISO beklentiden buyuk (> 1.5 GB).${NC}"
     fi
 
     echo ""

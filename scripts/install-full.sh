@@ -254,6 +254,12 @@ setup_advanced_ai() {
         # Check interval'i 5 saniyeye dusur
         sed -i 's/CHECK_INTERVAL=10/CHECK_INTERVAL=5/' \
             /etc/systemd/system/klipperos-ai-monitor.service
+
+        # FULL profilde adaptif baski ve otonom kurtarma varsayilan acik
+        sed -i 's/ADAPTIVE_PRINT=0/ADAPTIVE_PRINT=1/' \
+            /etc/systemd/system/klipperos-ai-monitor.service
+        sed -i 's/AUTORECOVERY_ENABLED=0/AUTORECOVERY_ENABLED=1/' \
+            /etc/systemd/system/klipperos-ai-monitor.service
     fi
 
     # FULL profil icin ekstra Python paketleri
@@ -264,7 +270,7 @@ setup_advanced_ai() {
             scikit-image 2>/dev/null || true
     fi
 
-    log "Gelismis AI hazir (5sn aralik, ekstra analiz)."
+    log "Gelismis AI hazir (5sn aralik, adaptif baski + otonom kurtarma aktif)."
 }
 
 # --- Firewall ---

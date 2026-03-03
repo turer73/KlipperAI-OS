@@ -1,0 +1,12 @@
+[Unit]
+Description=KlipperOS-AI OS Tuning & Hardening
+After=kos-zram.service local-fs.target
+Before=klipper.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/klipperos-ai/scripts/setup-os-tuning.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=KlipperOS-AI AI Resource Manager
+After=kos-zram.service kos-os-tuning.service network.target
+Wants=klipper.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /opt/klipperos-ai/ai-monitor/resource_manager.py
+Restart=on-failure
+RestartSec=5
+MemoryMax=64M
+CPUQuota=10%
+Environment=PYTHONPATH=/opt/klipperos-ai
+
+[Install]
+WantedBy=multi-user.target

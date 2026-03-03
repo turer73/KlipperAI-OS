@@ -281,7 +281,8 @@ install_ai_monitor() {
         numpy \
         pillow \
         opencv-python-headless \
-        requests
+        requests \
+        psutil
 
     # Systemd service
     cat > /etc/systemd/system/klipperos-ai-monitor.service << AISERVICE
@@ -299,10 +300,54 @@ Environment=MOONRAKER_URL=http://127.0.0.1:7125
 Environment=CAMERA_URL=http://127.0.0.1:8080/?action=snapshot
 Environment=CHECK_INTERVAL=10
 Environment=FLOWGUARD_ENABLED=1
+Environment=ADAPTIVE_PRINT=0
+Environment=PREDICTIVE_MAINT=1
+Environment=AUTORECOVERY_ENABLED=0
 
 [Install]
 WantedBy=multi-user.target
 AISERVICE
+
+    # OS Tuning servisi
+    if [ -f "${SCRIPT_DIR}/setup-os-tuning.sh" ]; then
+        cat > /etc/systemd/system/kos-os-tuning.service << OSTUNING
+[Unit]
+Description=KlipperOS-AI OS Tuning
+After=local-fs.target
+Before=klipper.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/klipperos-ai/scripts/setup-os-tuning.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+OSTUNING
+        systemctl enable kos-os-tuning.service 2>/dev/null || true
+    fi
+
+    # Resource Manager servisi
+    cat > /etc/systemd/system/kos-resource-manager.service << RESMGR
+[Unit]
+Description=KlipperOS-AI Resource Manager
+After=network.target klipperos-ai-monitor.service
+Requires=klipperos-ai-monitor.service
+
+[Service]
+Type=simple
+User=${KLIPPER_USER}
+ExecStart=${ai_venv}/bin/python ${ai_dir}/resource_manager.py
+Restart=always
+RestartSec=30
+MemoryMax=64M
+CPUQuota=10%
+Environment=MOONRAKER_URL=http://127.0.0.1:7125
+
+[Install]
+WantedBy=multi-user.target
+RESMGR
+    systemctl enable kos-resource-manager.service 2>/dev/null || true
 
     log "AI Print Monitor kuruldu."
 }

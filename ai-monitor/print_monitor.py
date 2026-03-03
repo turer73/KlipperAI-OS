@@ -30,12 +30,20 @@ try:
     from flow_guard import FlowGuard, FlowSignal, FlowVerdict
     from heater_analyzer import HeaterDutyAnalyzer
     from extruder_monitor import ExtruderLoadMonitor
+    from adaptive_thresholds import AdaptiveThresholdEngine
+    from adaptive_print import AdaptivePrintController
+    from predictive_maintenance import PredictiveMaintenanceEngine
+    from autonomous_recovery import AutonomousRecoveryEngine
 except ImportError:
     from .frame_capture import FrameCapture
     from .spaghetti_detect import SpaghettiDetector
     from .flow_guard import FlowGuard, FlowSignal, FlowVerdict
     from .heater_analyzer import HeaterDutyAnalyzer
     from .extruder_monitor import ExtruderLoadMonitor
+    from .adaptive_thresholds import AdaptiveThresholdEngine
+    from .adaptive_print import AdaptivePrintController
+    from .predictive_maintenance import PredictiveMaintenanceEngine
+    from .autonomous_recovery import AutonomousRecoveryEngine
 
 # --- Logging ---
 logging.basicConfig(
@@ -94,6 +102,20 @@ class MoonrakerClient:
             return True
         except Exception as e:
             logger.error("Baski duraklatma hatasi: %s", e)
+            return False
+
+    def resume_print(self) -> bool:
+        """Baskiyi devam ettir."""
+        try:
+            resp = requests.post(
+                f"{self.base_url}/printer/print/resume",
+                timeout=5,
+            )
+            resp.raise_for_status()
+            logger.info("BASKI DEVAM EDIYOR — Recovery basarili")
+            return True
+        except Exception as e:
+            logger.error("Baski devam ettirme hatasi: %s", e)
             return False
 
     def send_notification(self, message: str) -> bool:
@@ -176,6 +198,62 @@ class MoonrakerClient:
         except Exception:
             return {"current_layer": 0, "total_layer": 0, "z_height": 0.0}
 
+    def send_gcode(self, command: str) -> bool:
+        """Send G-code command via Moonraker."""
+        try:
+            resp = requests.post(
+                f"{self.base_url}/printer/gcode/script",
+                json={"script": command},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error("G-code gonderilemedi (%s): %s", command, e)
+            return False
+
+    def get_print_speed(self) -> float:
+        """Get current print speed (mm/s) from velocity limit."""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/printer/objects/query",
+                params={"toolhead": "max_velocity"},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {}).get("status", {})
+            return data.get("toolhead", {}).get("max_velocity", 0.0)
+        except Exception:
+            return 0.0
+
+    def get_extruder_temp(self) -> float:
+        """Get current extruder target temperature."""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/printer/objects/query",
+                params={"extruder": "target"},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {}).get("status", {})
+            return data.get("extruder", {}).get("target", 0.0)
+        except Exception:
+            return 0.0
+
+    def get_current_extruder_temp(self) -> float:
+        """Get current extruder actual temperature."""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/printer/objects/query",
+                params={"extruder": "temperature"},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {}).get("status", {})
+            return data.get("extruder", {}).get("temperature", 0.0)
+        except Exception:
+            return 0.0
+
     def is_available(self) -> bool:
         """Moonraker erisilebilir mi?"""
         try:
@@ -210,6 +288,30 @@ class PrintMonitor:
         self._calibration_heater_samples = []
         self._calibration_tmc_samples = []
 
+        # Adaptive Print Intelligence (Phase 2)
+        self.adaptive_thresholds = AdaptiveThresholdEngine()
+        self.adaptive_print = AdaptivePrintController()
+        self._adaptive_enabled = os.environ.get("ADAPTIVE_PRINT", "0").lower() in ("1", "true", "yes", "on")
+        self._was_printing = False
+        self._last_layer = -1
+
+        # Predictive Maintenance (Phase 3)
+        self.maintenance_engine = PredictiveMaintenanceEngine()
+        self._maintenance_enabled = os.environ.get("PREDICTIVE_MAINT", "1").lower() not in ("0", "false", "no", "off")
+        self._last_maintenance_check = 0.0
+        self._print_start_time = 0.0
+
+        # Autonomous Recovery (Phase 4)
+        self.recovery_engine = AutonomousRecoveryEngine(
+            gcode_sender=self.moonraker.send_gcode,
+            pause_printer=self.moonraker.pause_print,
+            resume_printer=self.moonraker.resume_print,
+            sensor_reader=self.moonraker.get_filament_sensor,
+            temp_reader=self.moonraker.get_current_extruder_temp,
+            notifier=self.moonraker.send_notification,
+        )
+        self._autorecovery_enabled = os.environ.get("AUTORECOVERY_ENABLED", "0").lower() in ("1", "true", "yes", "on")
+
     def start(self):
         """Monitor'u baslat."""
         logger.info("=" * 50)
@@ -236,6 +338,25 @@ class PrintMonitor:
         if self._flowguard_enabled:
             logger.info("FlowGuard aktif. Kalibrasyon baski basladiginda yapilacak.")
 
+        # Adaptive Print baslatma
+        if self._adaptive_enabled:
+            logger.info("Adaptive Print aktif. Parametreler baski basladiginda ayarlanacak.")
+        else:
+            logger.info("Adaptive Print devre disi. ADAPTIVE_PRINT=1 ile aktiflestirebilirsiniz.")
+
+        # Predictive Maintenance baslatma
+        if self._maintenance_enabled:
+            logger.info("Predictive Maintenance aktif. Baski saati: %.1f saat",
+                        self.maintenance_engine._total_print_hours)
+        else:
+            logger.info("Predictive Maintenance devre disi. PREDICTIVE_MAINT=1 ile aktiflestirebilirsiniz.")
+
+        # Autonomous Recovery baslatma
+        if self._autorecovery_enabled:
+            logger.info("Autonomous Recovery aktif. Max deneme: 2, Max sicaklik: 280°C")
+        else:
+            logger.info("Autonomous Recovery devre disi. AUTORECOVERY_ENABLED=1 ile aktiflestirebilirsiniz.")
+
         # Ana dongu
         self._running = True
         logger.info("Monitor aktif. Kontrol dongusu basliyor...")
@@ -251,11 +372,39 @@ class PrintMonitor:
     def _check_cycle(self):
         """Tek bir kontrol dongusu."""
         # Baski yapiliyor mu?
-        if not self.moonraker.is_printing():
+        is_printing = self.moonraker.is_printing()
+
+        if not is_printing:
+            if self._was_printing:
+                # Baski bitti — adaptive state sifirla
+                self._was_printing = False
+                if self._adaptive_enabled:
+                    self.adaptive_print.reset()
+                    self.adaptive_thresholds = AdaptiveThresholdEngine()
+                    logger.info("Adaptive: baski bitti, durum sifirlandi.")
+                # Predictive Maintenance: baski saati ekle
+                if self._maintenance_enabled and self._print_start_time > 0:
+                    hours = (time.time() - self._print_start_time) / 3600
+                    self.maintenance_engine.add_print_hours(hours)
+                    self.maintenance_engine.save_state()
+                    logger.info("Maintenance: +%.2f saat eklendi (toplam: %.1f)",
+                                hours, self.maintenance_engine._total_print_hours)
+                    self._print_start_time = 0.0
             if self._check_count > 0 and self._check_count % 30 == 0:
                 logger.debug("Yazici bosta — bekleniyor...")
             self._consecutive_alerts = 0
             return
+
+        # Yeni baski basladi mi?
+        if not self._was_printing:
+            self._was_printing = True
+            self._print_start_time = time.time()
+            if self._adaptive_enabled:
+                speed = self.moonraker.get_print_speed()
+                temp = self.moonraker.get_extruder_temp()
+                if speed > 0 and temp > 0:
+                    self.adaptive_print.set_base_params(speed=speed, temp=temp)
+                    logger.info("Adaptive: baski basladi, base speed=%.0f temp=%.0f", speed, temp)
 
         # Kameradan frame yakala
         frame = self.capture.capture()
@@ -283,9 +432,13 @@ class PrintMonitor:
         # Aksiyon al
         self._handle_action(action, result)
 
+        # Feed AI confidence to adaptive thresholds
+        if self._adaptive_enabled:
+            self.adaptive_thresholds.update(ai_confidence=confidence)
+
         # --- FlowGuard 4-Layer Check ---
         if self._flowguard_enabled:
-            self._flowguard_cycle(ai_action=action)
+            self._flowguard_cycle(ai_action=action, ai_confidence=confidence, ai_class=detected_class)
 
     def _handle_action(self, action: str, result: dict):
         """Tespit sonucuna gore aksiyon al."""
@@ -339,7 +492,8 @@ class PrintMonitor:
         logger.info("Sinyal alindi (%s). Monitor durduruluyor...", signum)
         self._running = False
 
-    def _flowguard_cycle(self, ai_action: str = "none"):
+    def _flowguard_cycle(self, ai_action: str = "none",
+                         ai_confidence: float = 1.0, ai_class: str = "normal"):
         """FlowGuard 4-layer detection cycle."""
         # Kalibrasyon asamasi
         if not self._calibration_done:
@@ -397,17 +551,63 @@ class PrintMonitor:
         else:
             signals.append(FlowSignal.OK)
 
+        # Adaptive threshold besle
+        if self._adaptive_enabled and duty >= 0:
+            self.adaptive_thresholds.update(
+                heater_duty=duty,
+                sg_result=float(sg) if sg >= 0 else -1.0,
+            )
+
+        # Predictive Maintenance: feed trackers
+        if self._maintenance_enabled:
+            target_temp = self.moonraker.get_extruder_temp()
+            self.maintenance_engine.update(
+                heater_duty=duty,
+                sg_result=float(sg) if sg >= 0 else -1.0,
+                target_temp=target_temp,
+            )
+            # Periodic check (her 60 saniyede bir)
+            now = time.time()
+            if now - self._last_maintenance_check >= 60:
+                self._last_maintenance_check = now
+                alerts = self.maintenance_engine.check_maintenance()
+                for alert in alerts:
+                    logger.warning("Maintenance %s: %s — %s",
+                                   alert.severity.upper() if hasattr(alert.severity, 'upper') else alert.severity,
+                                   alert.message, alert.recommended_action)
+                    if alert.severity in ("warning", "critical"):
+                        self.moonraker.send_notification(
+                            f"Bakim uyarisi ({alert.component}): {alert.message}")
+
         # Oylama
         verdict = self.flow_guard.evaluate(signals)
 
+        # --- Adaptive Print Scoring ---
+        if self._adaptive_enabled and self._calibration_done:
+            self._adaptive_score_cycle(
+                layer_info=layer_info,
+                duty=duty,
+                sg=sg,
+            )
+
         if verdict == FlowVerdict.CRITICAL:
             logger.critical(
-                "FlowGuard CRITICAL — Baski duraklatiliyor! "
-                "Sinyaller: %s, Son OK katman: %d (Z=%.1f)",
+                "FlowGuard CRITICAL — Sinyaller: %s, Son OK katman: %d (Z=%.1f)",
                 [s.name for s in signals],
                 self.flow_guard.last_ok_layer,
                 self.flow_guard.last_ok_z,
             )
+
+            # Autonomous Recovery: teshis → plan → yurut
+            if self._autorecovery_enabled:
+                recovered = self._attempt_recovery(
+                    sensor=sensor, sg=sg, duty=duty,
+                    ai_class=ai_class, ai_confidence=ai_confidence,
+                )
+                if recovered:
+                    return  # Kurtarma basarili, devam et
+
+            # Fallback: durdur + bildirim
             self.moonraker.pause_print()
             self.moonraker.send_notification(
                 f"FlowGuard CRITICAL: Akis hatasi tespit edildi! "
@@ -424,6 +624,108 @@ class PrintMonitor:
         elif verdict == FlowVerdict.NOTICE:
             logger.info("FlowGuard NOTICE — Tek sinyal anomalisi: %s",
                          [s.name for s in signals])
+
+    def _attempt_recovery(self, sensor: int, sg: int, duty: float,
+                          ai_class: str, ai_confidence: float) -> bool:
+        """Otonom kurtarma dene. Basari durumunda True dondurur."""
+        try:
+            target_temp = self.moonraker.get_extruder_temp()
+            current_temp = self.moonraker.get_current_extruder_temp()
+            heater_baseline = self.heater_analyzer.baseline if hasattr(self.heater_analyzer, "baseline") else 0.0
+            tmc_baseline = self.extruder_monitor._baseline if hasattr(self.extruder_monitor, "_baseline") else 0.0
+
+            diagnosis = self.recovery_engine.diagnose(
+                sensor_state=sensor,
+                tmc_sg=sg,
+                tmc_sg_baseline=tmc_baseline,
+                heater_duty=duty,
+                heater_baseline=heater_baseline,
+                target_temp=target_temp,
+                current_temp=current_temp,
+                ai_class=ai_class,
+                ai_confidence=ai_confidence,
+            )
+
+            if diagnosis is None:
+                logger.info("Recovery: teshis sonucu yok, kurtarma atlanıyor.")
+                return False
+
+            if not diagnosis.auto_recoverable:
+                logger.warning("Recovery: %s otomatik kurtarilamaz.", diagnosis.category.value)
+                self.moonraker.send_notification(
+                    f"Ariza tespit edildi: {diagnosis.category.value} — "
+                    f"Otomatik kurtarma mumkun degil. Baski duraklatildi."
+                )
+                return False
+
+            plan = self.recovery_engine.plan_recovery(
+                diagnosis, current_temp=current_temp, target_temp=target_temp)
+            if plan is None:
+                logger.warning("Recovery: plan olusturulamadi (max deneme veya devre disi).")
+                return False
+
+            logger.info("Recovery: %s icin %d adimlik plan olusturuldu.",
+                        diagnosis.category.value, len(plan.steps))
+            self.moonraker.send_notification(
+                f"Otonom kurtarma baslatiliyor: {diagnosis.category.value}")
+
+            result = self.recovery_engine.execute_recovery(plan)
+            if result.success:
+                logger.info("Recovery BASARILI: %s (%.1fs)", diagnosis.category.value, result.duration_sec)
+                self.moonraker.send_notification(
+                    f"Kurtarma basarili! {diagnosis.category.value} — "
+                    f"Baski devam ediyor ({result.duration_sec:.0f}s)")
+                return True
+            else:
+                logger.error("Recovery BASARISIZ: %s — %s", diagnosis.category.value, result.failure_reason)
+                self.moonraker.send_notification(
+                    f"Kurtarma basarisiz: {result.failure_reason}. Baski durduruluyor.")
+                return False
+
+        except Exception as e:
+            logger.error("Recovery hatasi: %s", e)
+            return False
+
+    def _adaptive_score_cycle(self, layer_info: dict, duty: float, sg: int):
+        """Adaptive print scoring — her katmanda skor, her 5'te ayarlama."""
+        current_layer = layer_info.get("current_layer", 0)
+        z_height = layer_info.get("z_height", 0.0)
+
+        # Ayni katmani tekrar skorlama
+        if current_layer == self._last_layer:
+            return
+        self._last_layer = current_layer
+
+        # Flow rate suggestion: extruder_monitor'den
+        flow_suggestion = 1.0
+        if hasattr(self.extruder_monitor, "suggest_flow_rate"):
+            flow_suggestion = self.extruder_monitor.suggest_flow_rate()
+
+        # Heater baseline
+        heater_baseline = self.heater_analyzer.baseline if hasattr(self.heater_analyzer, "baseline") else 0.0
+
+        # AI son tespit
+        ai_conf = self.adaptive_thresholds.ai_confidence_stats.mean if self.adaptive_thresholds.ai_confidence_stats.n > 0 else 1.0
+
+        # Skor hesapla
+        score = self.adaptive_print.score_layer(
+            layer=current_layer,
+            z_height=z_height,
+            flow_rate_suggestion=flow_suggestion,
+            heater_duty=duty if duty >= 0 else 0.0,
+            heater_baseline=heater_baseline,
+            ai_confidence=ai_conf,
+            ai_class="normal",  # FlowGuard zaten anomalileri yakaliyor
+        )
+
+        # Her 5 katmanda degerlendir
+        if current_layer > 0 and current_layer % 5 == 0:
+            adj = self.adaptive_print.evaluate_adaptation()
+            if adj:
+                self.adaptive_print.apply_adjustment(
+                    adj,
+                    gcode_sender=self.moonraker.send_gcode,
+                )
 
     def _flowguard_calibrate(self):
         """FlowGuard kalibrasyon — ilk 30 ornekle baseline hesapla."""
@@ -457,7 +759,7 @@ class PrintMonitor:
     @property
     def stats(self) -> dict:
         """Monitor istatistikleri."""
-        return {
+        result = {
             "check_count": self._check_count,
             "alert_count": self._alert_count,
             "capture_stats": self.capture.stats,
@@ -466,7 +768,17 @@ class PrintMonitor:
             "flowguard_calibrated": self._calibration_done,
             "flowguard_last_ok_layer": self.flow_guard.last_ok_layer,
             "flowguard_warning_count": self.flow_guard.warning_count,
+            "adaptive_enabled": self._adaptive_enabled,
         }
+        if self._adaptive_enabled:
+            result["adaptive_adjustments"] = self.adaptive_print.current_adjustments
+            result["adaptive_thresholds"] = self.adaptive_thresholds.summary
+        if self._maintenance_enabled:
+            result["maintenance"] = self.maintenance_engine.status
+        result["autorecovery_enabled"] = self._autorecovery_enabled
+        if self._autorecovery_enabled:
+            result["recovery"] = self.recovery_engine.status
+        return result
 
 
 # --- Entry Point ---

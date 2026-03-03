@@ -37,6 +37,9 @@ def create_app() -> FastAPI:
     from .routers import system as system_router
     from .routers import flowguard as flowguard_router
     from .routers import ws as ws_router
+    from .routers import resources as resources_router
+    from .routers import maintenance as maintenance_router
+    from .routers import recovery as recovery_router
     app.include_router(auth_router.router)
     app.include_router(printer_router.router)
     app.include_router(control_router.router)
@@ -44,6 +47,9 @@ def create_app() -> FastAPI:
     app.include_router(system_router.router)
     app.include_router(flowguard_router.router)
     app.include_router(ws_router.router)
+    app.include_router(resources_router.router)
+    app.include_router(maintenance_router.router)
+    app.include_router(recovery_router.router)
     return app
 
 app = create_app()

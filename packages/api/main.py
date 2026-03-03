@@ -9,9 +9,12 @@ from .config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
-    # TODO: DB init, MoonrakerClient init
+    from .db.engine import Database
+    db = Database(settings.db_path)
+    db.connect()
+    app.state.db = db
     yield
-    # TODO: cleanup
+    db.close()
 
 def create_app() -> FastAPI:
     app = FastAPI(

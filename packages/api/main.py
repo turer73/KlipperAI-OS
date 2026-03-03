@@ -27,8 +27,10 @@ def create_app() -> FastAPI:
     )
     from .routers import printer as printer_router
     from .routers import control as control_router
+    from .routers import files as files_router
     app.include_router(printer_router.router)
     app.include_router(control_router.router)
+    app.include_router(files_router.router)
     return app
 
 app = create_app()

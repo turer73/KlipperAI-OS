@@ -28,6 +28,7 @@ klipper ALL=(ALL) NOPASSWD: /usr/bin/nmcli
 klipper ALL=(ALL) NOPASSWD: /usr/bin/tailscale
 klipper ALL=(ALL) NOPASSWD: /usr/bin/apt-get
 klipper ALL=(ALL) NOPASSWD: /usr/bin/dpkg
+klipper ALL=(ALL) NOPASSWD: /usr/bin/python3
 SUDOERS
 chmod 440 /etc/sudoers.d/klipperos
 

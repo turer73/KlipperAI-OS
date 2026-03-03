@@ -1,7 +1,9 @@
 [Unit]
 Description=KlipperOS-AI First Boot Wizard
-After=network-online.target getty@tty1.service
+After=network-online.target
 Wants=network-online.target
+Before=getty@tty1.service
+Conflicts=getty@tty1.service
 ConditionPathExists=/opt/klipperos-ai/.first-boot
 
 [Service]

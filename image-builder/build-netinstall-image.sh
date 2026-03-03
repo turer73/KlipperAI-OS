@@ -251,7 +251,7 @@ if [ -f /opt/klipperos-ai/.first-boot ]; then
     echo ""
     echo "  Installer baslatiliyor... (3 saniye)"
     sleep 3
-    cd /opt/klipperos-ai && sudo python3 -m packages.installer
+    cd /opt/klipperos-ai && exec sudo /usr/bin/python3 -m packages.installer
 fi
 WIZARD_FALLBACK
 

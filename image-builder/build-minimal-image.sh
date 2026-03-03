@@ -213,7 +213,7 @@ if [ -f "$EFI_IMG" ] && [ -f "$BIOS_IMG" ]; then
     log "Hybrid boot ISO olusturuluyor (BIOS + UEFI)..."
     BIOS_REL="${BIOS_IMG#${ISO_EXTRACT}/}"
     xorriso -as mkisofs \
-        -r -V "KlipperOS-AI Minimal v${VERSION}" \
+        -r -V "KOS-AI-MIN" \
         -o "$OUTPUT_ISO" \
         --grub2-mbr "${BUILD_DIR}/mbr.bin" \
         -partition_offset 16 \
@@ -232,7 +232,7 @@ if [ -f "$EFI_IMG" ] && [ -f "$BIOS_IMG" ]; then
 elif [ -f "$EFI_IMG" ]; then
     log "UEFI-only ISO olusturuluyor..."
     xorriso -as mkisofs \
-        -r -V "KlipperOS-AI Minimal v${VERSION}" \
+        -r -V "KOS-AI-MIN" \
         -o "$OUTPUT_ISO" \
         -append_partition 2 28732ac11ff8d211ba4b00a0c93ec93b "$EFI_IMG" \
         -appended_part_as_gpt \
@@ -243,7 +243,7 @@ elif [ -f "$EFI_IMG" ]; then
 else
     warn "Boot image bulunamadi — basit ISO olusturuluyor..."
     xorriso -as mkisofs \
-        -r -V "KlipperOS-AI Minimal v${VERSION}" \
+        -r -V "KOS-AI-MIN" \
         -o "$OUTPUT_ISO" \
         -J -joliet-long \
         "$ISO_EXTRACT" \

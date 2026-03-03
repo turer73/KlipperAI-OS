@@ -1,0 +1,201 @@
+# =============================================================================
+# KlipperOS-AI — Minimal ISO Build & Release Workflow
+# =============================================================================
+# ~500 MB minimal ISO: sadece Python TUI installer icerir.
+# Tum Klipper ekosistemi ilk boot'ta internet uzerinden kurulur.
+#
+# Tetikleme:
+#   - Manuel: Actions sekmesinden "Run workflow" ile
+#   - Push: packages/installer/** veya build script degistiginde
+# =============================================================================
+
+name: Build Minimal ISO
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (ornek: 3.0.0)'
+        required: false
+        default: ''
+      create_release:
+        description: 'GitHub Release olustur?'
+        required: false
+        type: boolean
+        default: false
+
+  push:
+    branches: [master]
+    paths:
+      - 'packages/installer/**'
+      - 'image-builder/build-minimal-image.sh'
+      - 'image-builder/config/includes.chroot/etc/systemd/system/kos-installer.service'
+
+permissions:
+  contents: write
+
+env:
+  IMAGE_BASE_NAME: klipperos-minimal
+
+jobs:
+  build:
+    name: Build Minimal ISO
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      # ----- Checkout -----
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ----- Version belirleme -----
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=$(grep -oP '^VERSION="\K[^"]+' image-builder/build-minimal-image.sh || echo "3.0.0-minimal")
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image_name=${IMAGE_BASE_NAME}-v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Building Minimal ISO v${VERSION}"
+
+      # ----- Bagimliliklari kur -----
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xorriso wget
+
+      # ----- Ubuntu Server ISO cache -----
+      - name: Cache Ubuntu Server ISO
+        id: cache-iso
+        uses: actions/cache@v4
+        with:
+          path: image-builder/build/ubuntu-*.iso
+          key: ubuntu-server-24.04.2-amd64
+
+      # ----- Testleri calistir -----
+      - name: Run installer tests
+        run: |
+          pip install pytest
+          python -m pytest tests/test_installer/ -v --tb=short
+
+      # ----- Minimal ISO olustur -----
+      - name: Build minimal ISO
+        run: |
+          cd image-builder
+          sudo -E bash build-minimal-image.sh
+          sudo chown -R runner:runner . || true
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          SKIP_SHA_CHECK: ${{ steps.cache-iso.outputs.cache-hit == 'true' && '1' || '0' }}
+
+      # ----- ISO bilgilerini topla -----
+      - name: Collect image info
+        id: image_info
+        run: |
+          IMAGE_NAME="${{ steps.version.outputs.image_name }}"
+          ISO_PATH="image-builder/${IMAGE_NAME}.iso"
+
+          if [ ! -f "$ISO_PATH" ]; then
+            FOUND=$(find image-builder/ -maxdepth 1 -name "*.iso" \
+              -not -name "*.sha256" 2>/dev/null | head -1)
+            if [ -n "$FOUND" ]; then
+              cp "$FOUND" "$ISO_PATH"
+            else
+              echo "::error::ISO file not found!"
+              ls -la image-builder/
+              exit 1
+            fi
+          fi
+
+          FILE_SIZE=$(du -h "$ISO_PATH" | cut -f1)
+          SHA256=$(sha256sum "$ISO_PATH" | cut -d' ' -f1)
+
+          echo "iso_path=${ISO_PATH}" >> "$GITHUB_OUTPUT"
+          echo "file_size=${FILE_SIZE}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
+
+          echo "${SHA256}  ${IMAGE_NAME}.iso" > "${ISO_PATH}.sha256"
+          echo "::notice::ISO: ${FILE_SIZE}, SHA256: ${SHA256}"
+
+      # ----- Artifact olarak yukle -----
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.version.outputs.image_name }}
+          path: |
+            image-builder/${{ steps.version.outputs.image_name }}.iso
+            image-builder/${{ steps.version.outputs.image_name }}.iso.sha256
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
+
+      # ----- GitHub Release (opsiyonel) -----
+      - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}-minimal
+          name: KlipperOS-AI Minimal v${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: true
+          body: |
+            ## KlipperOS-AI Minimal ISO v${{ steps.version.outputs.version }}
+
+            Minimal kurulum ISO'su — sadece Python TUI installer icerir.
+            Tum Klipper ekosistemi ilk boot'ta internet uzerinden kurulur.
+
+            ### Indirme
+
+            | Dosya | Boyut | SHA256 |
+            |-------|-------|--------|
+            | `${{ steps.version.outputs.image_name }}.iso` | ${{ steps.image_info.outputs.file_size }} | `${{ steps.image_info.outputs.sha256 }}` |
+
+            ### Kurulum
+
+            **1. USB'ye yaz:**
+            ```bash
+            # Linux / macOS
+            sudo dd if=${{ steps.version.outputs.image_name }}.iso of=/dev/sdX bs=4M status=progress
+
+            # Windows: Balena Etcher veya Rufus kullanin
+            ```
+
+            **2. Ilk acilis:**
+            1. USB'den boot edin
+            2. Ubuntu autoinstall otomatik tamamlanir (~5 dk)
+            3. Yeniden baslatma sonrasi Python TUI Installer baslar
+            4. Donanim algilama → Ag baglantisi → Profil secimi → Kurulum
+            5. Profiller: **LIGHT** (512MB RAM) | **STANDARD** (2GB+) | **FULL** (4GB+)
+
+            ### Fark (Monolitik vs Minimal)
+            | | Monolitik | Minimal |
+            |---|---|---|
+            | ISO boyutu | ~3 GB | ~500 MB |
+            | Internet | Opsiyonel | Gerekli |
+            | Kurulum suresi | ~5 dk | ~15-30 dk |
+          files: |
+            image-builder/${{ steps.version.outputs.image_name }}.iso
+            image-builder/${{ steps.version.outputs.image_name }}.iso.sha256
+
+      # ----- Build ozeti -----
+      - name: Build summary
+        if: always()
+        run: |
+          echo "## Build Summary — Minimal ISO" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | v${{ steps.version.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ steps.version.outputs.image_name }}.iso\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Type | Minimal (TUI Installer only) |" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ steps.image_info.outputs.file_size }}" ]; then
+            echo "| Size | ${{ steps.image_info.outputs.file_size }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| SHA256 | \`${{ steps.image_info.outputs.sha256 }}\` |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "| Tests | Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY

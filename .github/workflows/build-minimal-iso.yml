@@ -1,8 +1,8 @@
 # =============================================================================
-# KlipperOS-AI — Minimal ISO Build & Release Workflow
+# KlipperOS-AI — Debootstrap Minimal ISO Build & Release Workflow
 # =============================================================================
-# ~500 MB minimal ISO: sadece Python TUI installer icerir.
-# Tum Klipper ekosistemi ilk boot'ta internet uzerinden kurulur.
+# debootstrap ile ~500 MB minimal live ISO uretir.
+# Python TUI installer dahil, Klipper ekosistemi ilk boot'ta kurulur.
 #
 # Tetikleme:
 #   - Manuel: Actions sekmesinden "Run workflow" ile
@@ -15,11 +15,16 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version (ornek: 3.0.0)'
+        description: 'Version (ornek: 4.0.0-live)'
         required: false
         default: ''
       create_release:
         description: 'GitHub Release olustur?'
+        required: false
+        type: boolean
+        default: false
+      no_firmware:
+        description: 'linux-firmware dahil etme (daha kucuk ISO)?'
         required: false
         type: boolean
         default: false
@@ -29,6 +34,7 @@ on:
     paths:
       - 'packages/installer/**'
       - 'image-builder/build-minimal-image.sh'
+      - 'image-builder/chroot-setup.sh'
       - 'image-builder/config/includes.chroot/etc/systemd/system/kos-installer.service'
 
 permissions:
@@ -39,9 +45,9 @@ env:
 
 jobs:
   build:
-    name: Build Minimal ISO
+    name: Build Minimal ISO (debootstrap)
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       # ----- Checkout -----
@@ -57,7 +63,7 @@ jobs:
           if [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
           else
-            VERSION=$(grep -oP '^VERSION="\K[^"]+' image-builder/build-minimal-image.sh || echo "3.0.0-minimal")
+            VERSION=$(grep -oP '^VERSION="\K[^"]+' image-builder/build-minimal-image.sh || echo "4.0.0-live")
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "image_name=${IMAGE_BASE_NAME}-v${VERSION}" >> "$GITHUB_OUTPUT"
@@ -67,21 +73,24 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xorriso wget
+          sudo apt-get install -y \
+              debootstrap squashfs-tools xorriso \
+              grub-efi-amd64-bin grub-pc-bin shim-signed \
+              mtools dosfstools
 
-      # ----- Ubuntu Server ISO cache -----
-      - name: Cache Ubuntu Server ISO
-        id: cache-iso
+      # ----- Debootstrap rootfs cache -----
+      - name: Cache debootstrap rootfs
+        id: cache-rootfs
         uses: actions/cache@v4
         with:
-          path: image-builder/build/ubuntu-*.iso
-          key: ubuntu-server-24.04.2-amd64
+          path: image-builder/build/rootfs
+          key: debootstrap-noble-amd64-${{ hashFiles('image-builder/build-minimal-image.sh', 'image-builder/chroot-setup.sh') }}
 
       # ----- Testleri calistir -----
-      - name: Run installer tests
+      - name: Run tests
         run: |
           pip install pytest
-          python -m pytest tests/test_installer/ -v --tb=short
+          python -m pytest tests/test_image_builder.py tests/test_installer/ -v --tb=short
 
       # ----- Minimal ISO olustur -----
       - name: Build minimal ISO
@@ -91,7 +100,8 @@ jobs:
           sudo chown -R runner:runner . || true
         env:
           DEBIAN_FRONTEND: noninteractive
-          SKIP_SHA_CHECK: ${{ steps.cache-iso.outputs.cache-hit == 'true' && '1' || '0' }}
+          SKIP_DEBOOTSTRAP: ${{ steps.cache-rootfs.outputs.cache-hit == 'true' && '1' || '0' }}
+          NO_FIRMWARE: ${{ github.event.inputs.no_firmware == 'true' && '1' || '0' }}
 
       # ----- ISO bilgilerini topla -----
       - name: Collect image info
@@ -139,14 +149,14 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}-minimal
-          name: KlipperOS-AI Minimal v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: KlipperOS-AI v${{ steps.version.outputs.version }}
           draft: false
           prerelease: true
           body: |
             ## KlipperOS-AI Minimal ISO v${{ steps.version.outputs.version }}
 
-            Minimal kurulum ISO'su — sadece Python TUI installer icerir.
+            Debootstrap tabanli minimal live ISO — sadece Python TUI installer icerir.
             Tum Klipper ekosistemi ilk boot'ta internet uzerinden kurulur.
 
             ### Indirme
@@ -167,17 +177,10 @@ jobs:
 
             **2. Ilk acilis:**
             1. USB'den boot edin
-            2. Ubuntu autoinstall otomatik tamamlanir (~5 dk)
-            3. Yeniden baslatma sonrasi Python TUI Installer baslar
-            4. Donanim algilama → Ag baglantisi → Profil secimi → Kurulum
+            2. Live sistem baslatilir (~1 dk)
+            3. Python TUI Installer otomatik baslar
+            4. Donanim algilama > Ag baglantisi > Profil secimi > Kurulum
             5. Profiller: **LIGHT** (512MB RAM) | **STANDARD** (2GB+) | **FULL** (4GB+)
-
-            ### Fark (Monolitik vs Minimal)
-            | | Monolitik | Minimal |
-            |---|---|---|
-            | ISO boyutu | ~3 GB | ~500 MB |
-            | Internet | Opsiyonel | Gerekli |
-            | Kurulum suresi | ~5 dk | ~15-30 dk |
           files: |
             image-builder/${{ steps.version.outputs.image_name }}.iso
             image-builder/${{ steps.version.outputs.image_name }}.iso.sha256
@@ -186,13 +189,13 @@ jobs:
       - name: Build summary
         if: always()
         run: |
-          echo "## Build Summary — Minimal ISO" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Summary — Minimal ISO (debootstrap)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Version | v${{ steps.version.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Image | \`${{ steps.version.outputs.image_name }}.iso\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Type | Minimal (TUI Installer only) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Builder | debootstrap + squashfs (XZ) |" >> $GITHUB_STEP_SUMMARY
           if [ -n "${{ steps.image_info.outputs.file_size }}" ]; then
             echo "| Size | ${{ steps.image_info.outputs.file_size }} |" >> $GITHUB_STEP_SUMMARY
             echo "| SHA256 | \`${{ steps.image_info.outputs.sha256 }}\` |" >> $GITHUB_STEP_SUMMARY

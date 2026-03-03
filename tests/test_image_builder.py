@@ -11,29 +11,76 @@ IMG_DIR = ROOT / "image-builder"
 
 
 class TestBuildScript:
-    """build-image.sh syntax and structure tests."""
+    """build-minimal-image.sh (debootstrap pipeline) tests."""
 
     def test_exists(self):
-        assert (IMG_DIR / "build-image.sh").exists()
+        assert (IMG_DIR / "build-minimal-image.sh").exists()
 
     def test_bash_syntax(self):
         result = subprocess.run(
-            ["bash", "-n", str(IMG_DIR / "build-image.sh")],
+            ["bash", "-n", str(IMG_DIR / "build-minimal-image.sh")],
             capture_output=True, text=True,
         )
         assert result.returncode == 0, f"Syntax error: {result.stderr}"
 
-    def test_has_lb_config(self):
-        content = (IMG_DIR / "build-image.sh").read_text()
-        assert "lb config" in content
+    def test_has_debootstrap(self):
+        content = (IMG_DIR / "build-minimal-image.sh").read_text()
+        assert "debootstrap" in content
 
-    def test_has_lb_build(self):
-        content = (IMG_DIR / "build-image.sh").read_text()
-        assert "lb build" in content
+    def test_has_mksquashfs(self):
+        content = (IMG_DIR / "build-minimal-image.sh").read_text()
+        assert "mksquashfs" in content
+
+    def test_has_xorriso(self):
+        content = (IMG_DIR / "build-minimal-image.sh").read_text()
+        assert "xorriso" in content
 
     def test_has_version(self):
-        content = (IMG_DIR / "build-image.sh").read_text()
+        content = (IMG_DIR / "build-minimal-image.sh").read_text()
         assert 'VERSION=' in content
+
+    def test_has_cleanup_trap(self):
+        content = (IMG_DIR / "build-minimal-image.sh").read_text()
+        assert "trap" in content
+        assert "cleanup_mounts" in content
+
+
+class TestChrootSetup:
+    """chroot-setup.sh tests."""
+
+    def test_exists(self):
+        assert (IMG_DIR / "chroot-setup.sh").exists()
+
+    def test_bash_syntax(self):
+        result = subprocess.run(
+            ["bash", "-n", str(IMG_DIR / "chroot-setup.sh")],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"Syntax error: {result.stderr}"
+
+    def test_creates_klipper_user(self):
+        content = (IMG_DIR / "chroot-setup.sh").read_text()
+        assert "useradd" in content
+        assert "klipper" in content
+
+    def test_has_sudoers(self):
+        content = (IMG_DIR / "chroot-setup.sh").read_text()
+        assert "sudoers" in content
+
+    def test_has_autologin(self):
+        content = (IMG_DIR / "chroot-setup.sh").read_text()
+        assert "autologin" in content
+        assert "getty@tty1" in content
+
+    def test_has_locale_setup(self):
+        content = (IMG_DIR / "chroot-setup.sh").read_text()
+        assert "tr_TR.UTF-8" in content
+        assert "en_US.UTF-8" in content
+
+    def test_enables_services(self):
+        content = (IMG_DIR / "chroot-setup.sh").read_text()
+        assert "systemctl enable" in content
+        assert "NetworkManager" in content
 
 
 class TestPackageList:
@@ -44,17 +91,18 @@ class TestPackageList:
 
     def test_has_essential_packages(self):
         content = (IMG_DIR / "config" / "package-lists" / "klipperos.list.chroot").read_text()
-        essential = ["python3", "git", "nginx", "network-manager", "whiptail", "sudo"]
+        essential = ["python3", "network-manager", "whiptail", "sudo"]
         for pkg in essential:
             assert pkg in content, f"Missing package: {pkg}"
 
-    def test_has_klipper_build_deps(self):
-        content = (IMG_DIR / "config" / "package-lists" / "klipperos.list.chroot").read_text()
-        assert "gcc-arm-none-eabi" in content
-
-    def test_has_gtk_packages(self):
-        content = (IMG_DIR / "config" / "package-lists" / "klipperos.list.chroot").read_text()
-        assert "gir1.2-gtk-3.0" in content
+    def test_build_script_has_essential_packages(self):
+        content = (IMG_DIR / "build-minimal-image.sh").read_text()
+        essential = [
+            "linux-image-generic", "live-boot", "network-manager",
+            "python3", "whiptail", "sudo", "openssh-server",
+        ]
+        for pkg in essential:
+            assert pkg in content, f"Missing package in build script: {pkg}"
 
 
 class TestBuildHook:
@@ -116,8 +164,9 @@ class TestWizard:
         content = (IMG_DIR / "first-boot-wizard.sh").read_text()
         steps = [
             "step_welcome", "step_detect_hardware", "step_select_profile",
-            "step_network", "step_user_settings", "step_disk_install",
-            "step_install_profile", "step_complete",
+            "step_network", "step_user_settings",
+            "step_install_deferred_packages", "step_install_profile",
+            "step_complete",
         ]
         for step in steps:
             assert step in content, f"Missing step: {step}"
@@ -128,12 +177,6 @@ class TestWizard:
         assert "LIGHT" in content
         assert "STANDARD" in content
         assert "FULL" in content
-
-    def test_has_disk_install(self):
-        content = (IMG_DIR / "first-boot-wizard.sh").read_text()
-        assert "parted" in content
-        assert "rsync" in content
-        assert "grub-install" in content
 
 
 class TestGrubConfig:
@@ -148,4 +191,13 @@ class TestGrubConfig:
 
     def test_has_klipperai_branding(self):
         content = (IMG_DIR / "config" / "bootloaders" / "grub" / "grub.cfg").read_text()
-        assert "KlipperAI-OS" in content
+        assert "KlipperOS-AI" in content
+
+    def test_has_toram(self):
+        content = (IMG_DIR / "config" / "bootloaders" / "grub" / "grub.cfg").read_text()
+        assert "toram" in content
+
+    def test_has_locale_params(self):
+        content = (IMG_DIR / "config" / "bootloaders" / "grub" / "grub.cfg").read_text()
+        assert "locales=tr_TR.UTF-8" in content
+        assert "keyboard-layouts=tr" in content

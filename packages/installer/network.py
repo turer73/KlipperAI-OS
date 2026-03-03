@@ -11,9 +11,16 @@ class NetworkManager:
     """WiFi ve internet baglanti yonetimi."""
 
     def check_internet(self) -> bool:
-        """Internet baglantisi var mi?"""
-        ok, _ = run_cmd(["ping", "-c", "1", "-W", "3", "1.1.1.1"])
-        return ok
+        """Internet baglantisi var mi? (ping yerine socket — iputils gerektirmez)."""
+        import socket
+        for host in ("1.1.1.1", "8.8.8.8"):
+            try:
+                sock = socket.create_connection((host, 53), timeout=3)
+                sock.close()
+                return True
+            except OSError:
+                continue
+        return False
 
     def scan_wifi(self) -> list[tuple[str, int]]:
         """WiFi aglarini tara. [(ssid, sinyal_gucu), ...] dondur."""

@@ -6,6 +6,10 @@ from dataclasses import dataclass, field
 
 # --- APT Paket Gruplari ---
 BASE_APT = [
+    "git",
+    "wget",
+    "unzip",
+    "python3-venv",
     "build-essential",
     "cmake",
     "pkg-config",

@@ -1,0 +1,19 @@
+[Unit]
+Description=KlipperOS-AI First Boot Installer
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/klipperos-ai/.first-boot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -m packages.installer
+ExecStartPost=/bin/rm -f /opt/klipperos-ai/.first-boot
+WorkingDirectory=/opt/klipperos-ai
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+RemainAfterExit=no
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

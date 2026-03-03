@@ -96,5 +96,9 @@ autoinstall:
     - "curtin in-target -- systemctl disable apt-daily.timer || true"
     - "curtin in-target -- systemctl disable apt-daily-upgrade.timer || true"
 
+    # KlipperOS-AI Python TUI Installer (minimal ISO)
+    - "cp /cdrom/klipperos-ai/systemd/kos-installer.service /target/etc/systemd/system/ || true"
+    - "curtin in-target -- systemctl enable kos-installer.service || true"
+
     # Timezone
     - "curtin in-target -- timedatectl set-timezone Europe/Istanbul || true"

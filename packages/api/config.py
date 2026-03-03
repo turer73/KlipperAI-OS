@@ -1,4 +1,5 @@
 """API yapilandirma ayarlari."""
+from __future__ import annotations
 from pathlib import Path
 from dataclasses import dataclass, field
 import os

@@ -26,7 +26,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     from .routers import printer as printer_router
+    from .routers import control as control_router
     app.include_router(printer_router.router)
+    app.include_router(control_router.router)
     return app
 
 app = create_app()

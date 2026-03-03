@@ -239,19 +239,19 @@ if [ -f "${SCRIPT_DIR}/config/includes.chroot/etc/systemd/system/kos-installer.s
     log "kos-installer.service etkinlestirildi"
 fi
 
-# .bashrc fallback: service basarisiz olursa login'de wizard calistir
+# .bashrc fallback: service basarisiz olursa login'de Python installer calistir
 cat >> "${ROOTFS_DIR}/home/klipper/.bashrc" << 'WIZARD_FALLBACK'
 
-# --- KlipperOS-AI First-Boot Wizard Fallback ---
-if [ -f /opt/klipperos-ai/.first-boot ] && [ -x /usr/local/bin/klipperai-wizard ]; then
+# --- KlipperOS-AI First-Boot Installer Fallback ---
+if [ -f /opt/klipperos-ai/.first-boot ]; then
     echo ""
     echo "==================================================="
     echo "  KlipperOS-AI - Ilk Kurulum Sihirbazi"
     echo "==================================================="
     echo ""
-    echo "  Wizard baslatiliyor... (3 saniye)"
+    echo "  Installer baslatiliyor... (3 saniye)"
     sleep 3
-    sudo /usr/local/bin/klipperai-wizard
+    cd /opt/klipperos-ai && sudo python3 -m packages.installer
 fi
 WIZARD_FALLBACK
 

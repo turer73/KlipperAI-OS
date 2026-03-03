@@ -6,7 +6,7 @@ ConditionPathExists=/opt/klipperos-ai/.first-boot
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash /usr/local/bin/klipperai-wizard
+ExecStart=/usr/bin/python3 -m packages.installer
 ExecStartPost=/bin/rm -f /opt/klipperos-ai/.first-boot
 WorkingDirectory=/opt/klipperos-ai
 StandardInput=tty

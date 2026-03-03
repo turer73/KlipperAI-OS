@@ -1,6 +1,8 @@
 """Installer ana uygulamasi."""
 from __future__ import annotations
 
+import subprocess
+
 from .tui import TUI
 from .utils.logger import get_logger
 from .utils.sentinel import Sentinel
@@ -16,6 +18,7 @@ from .steps.complete import CompleteStep
 logger = get_logger()
 
 SENTINEL_DIR = "/opt/klipperos-ai"
+FIRST_BOOT_MARKER = "/opt/klipperos-ai/.first-boot"
 
 
 class InstallerApp:
@@ -46,7 +49,7 @@ class InstallerApp:
         profile_name = ProfileStep(tui=self.tui, hw_info=hw_info).run()
 
         # 5. Kullanici ayarlari
-        UserSetupStep(tui=self.tui).run()
+        UserSetupStep(tui=self.tui, dry_run=self.dry_run).run()
 
         # 6. Kurulum
         InstallStep(
@@ -62,4 +65,33 @@ class InstallerApp:
         CompleteStep(tui=self.tui, profile_name=profile_name).run()
 
         logger.info("Installer tamamlandi.")
+
+        # First-boot sentinel'i kaldir ve reboot
+        if not self.dry_run:
+            self._cleanup_and_reboot()
+
         return 0
+
+    def _cleanup_and_reboot(self) -> None:
+        """First-boot sentinel'i sil, installer service'i devre disi birak, reboot."""
+        import os
+        try:
+            if os.path.exists(FIRST_BOOT_MARKER):
+                os.remove(FIRST_BOOT_MARKER)
+                logger.info("First-boot marker silindi.")
+        except OSError as e:
+            logger.warning("First-boot marker silinemedi: %s", e)
+
+        try:
+            subprocess.run(
+                ["systemctl", "disable", "kos-installer"],
+                capture_output=True, timeout=10,
+            )
+        except Exception:
+            pass
+
+        logger.info("Sistem yeniden baslatiliyor...")
+        try:
+            subprocess.run(["reboot"], timeout=5)
+        except Exception:
+            pass

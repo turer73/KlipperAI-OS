@@ -9,6 +9,11 @@ from ..utils.logger import get_logger
 from ..installers.klipper import KlipperInstaller
 from ..installers.moonraker import MoonrakerInstaller
 from ..installers.mainsail import MainsailInstaller
+from ..installers.klipperscreen import KlipperScreenInstaller
+from ..installers.crowsnest import CrowsnestInstaller
+from ..installers.ai_monitor import AIMonitorInstaller
+from ..installers.multi_printer import MultiPrinterInstaller
+from ..installers.timelapse import TimelapseInstaller
 
 logger = get_logger()
 
@@ -16,6 +21,11 @@ COMPONENT_MAP: dict[str, type] = {
     "klipper": KlipperInstaller,
     "moonraker": MoonrakerInstaller,
     "mainsail": MainsailInstaller,
+    "klipperscreen": KlipperScreenInstaller,
+    "crowsnest": CrowsnestInstaller,
+    "ai_monitor": AIMonitorInstaller,
+    "multi_printer": MultiPrinterInstaller,
+    "timelapse": TimelapseInstaller,
 }
 
 

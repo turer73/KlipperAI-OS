@@ -40,7 +40,7 @@ class MoonrakerClient:
             del self._cache[key]
         return None
 
-    def _set_cache(self, key: str, data: Any, ttl: float | None = None) -> None:
+    def _set_cache(self, key: str, data: Any) -> None:
         self._cache[key] = (time.monotonic(), data)
 
     def clear_cache(self) -> None:

@@ -1,19 +1,23 @@
 [Unit]
-Description=KlipperOS-AI First Boot Installer
-After=network-online.target
+Description=KlipperOS-AI First Boot Wizard
+After=network-online.target getty@tty1.service
 Wants=network-online.target
 ConditionPathExists=/opt/klipperos-ai/.first-boot
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 -m packages.installer
+ExecStart=/bin/bash /usr/local/bin/klipperai-wizard
 ExecStartPost=/bin/rm -f /opt/klipperos-ai/.first-boot
 WorkingDirectory=/opt/klipperos-ai
 StandardInput=tty
 StandardOutput=tty
+StandardError=tty
 TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
 RemainAfterExit=no
 TimeoutStartSec=0
+Environment=TERM=linux
 
 [Install]
 WantedBy=multi-user.target

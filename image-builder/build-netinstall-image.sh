@@ -231,12 +231,29 @@ chmod +x "${KLIPPEROS_DIR}/first-boot-wizard.sh"
 cp "${SCRIPT_DIR}/first-boot-wizard.sh" "${ROOTFS_DIR}/usr/local/bin/klipperai-wizard"
 chmod +x "${ROOTFS_DIR}/usr/local/bin/klipperai-wizard"
 
-# Systemd: kos-installer.service
+# Systemd: kos-installer.service (wizard'i first-boot'ta calistirir)
 if [ -f "${SCRIPT_DIR}/config/includes.chroot/etc/systemd/system/kos-installer.service" ]; then
     cp "${SCRIPT_DIR}/config/includes.chroot/etc/systemd/system/kos-installer.service" \
         "${ROOTFS_DIR}/etc/systemd/system/"
     chroot "$ROOTFS_DIR" systemctl enable kos-installer.service 2>/dev/null || true
+    log "kos-installer.service etkinlestirildi"
 fi
+
+# .bashrc fallback: service basarisiz olursa login'de wizard calistir
+cat >> "${ROOTFS_DIR}/home/klipper/.bashrc" << 'WIZARD_FALLBACK'
+
+# --- KlipperOS-AI First-Boot Wizard Fallback ---
+if [ -f /opt/klipperos-ai/.first-boot ] && [ -x /usr/local/bin/klipperai-wizard ]; then
+    echo ""
+    echo "==================================================="
+    echo "  KlipperOS-AI - Ilk Kurulum Sihirbazi"
+    echo "==================================================="
+    echo ""
+    echo "  Wizard baslatiliyor... (3 saniye)"
+    sleep 3
+    sudo /usr/local/bin/klipperai-wizard
+fi
+WIZARD_FALLBACK
 
 # Deferred packages listesi
 mkdir -p "${KLIPPEROS_DIR}/config/package-lists"

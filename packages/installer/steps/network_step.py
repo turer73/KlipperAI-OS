@@ -136,7 +136,8 @@ class NetworkStep:
         self.tui.infobox(
             "WiFi Tarama",
             "WiFi aglari taraniyor...\n\n"
-            "Lutfen bekleyin.",
+            "Bu islem 10-15 saniye surebilir.\n"
+            "Lutfen bekleyin...",
         )
         return self.net.scan_wifi()
 

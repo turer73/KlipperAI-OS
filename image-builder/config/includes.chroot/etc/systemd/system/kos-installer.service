@@ -1,7 +1,9 @@
 [Unit]
 Description=KlipperOS-AI First Boot Wizard
-After=network-online.target
-Wants=network-online.target
+# NM'nin CALISMASI yeterli — online olmasini beklemeye gerek yok
+# (ag yapilandirmasini installer icinde kendimiz yapiyoruz)
+After=NetworkManager.service systemd-logind.service
+Wants=NetworkManager.service
 Before=getty@tty1.service
 Conflicts=getty@tty1.service
 ConditionPathExists=/opt/klipperos-ai/.first-boot

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from .utils.runner import run_cmd
 from .utils.logger import get_logger
@@ -12,8 +13,57 @@ logger = get_logger()
 class NetworkManager:
     """WiFi ve internet baglanti yonetimi."""
 
+    # ------------------------------------------------------------------
+    # Diagnostik yardimcilar
+    # ------------------------------------------------------------------
+
+    def _is_nm_running(self) -> bool:
+        """NetworkManager servisi calisiyor mu?"""
+        ok, _ = run_cmd(
+            ["systemctl", "is-active", "--quiet", "NetworkManager"],
+            timeout=5,
+        )
+        return ok
+
+    def _start_nm(self) -> bool:
+        """NetworkManager servisini baslat."""
+        logger.info("NetworkManager baslatiliyor...")
+        ok, _ = run_cmd(
+            ["systemctl", "start", "NetworkManager"],
+            timeout=15,
+        )
+        if ok:
+            time.sleep(3)  # D-Bus baglantisi icin bekle
+        return ok
+
+    def _ensure_nm(self) -> bool:
+        """NM calisiyor mu? Degilse baslat."""
+        if self._is_nm_running():
+            return True
+        logger.warning("NetworkManager calismiyor, baslatiliyor...")
+        if not self._start_nm():
+            logger.error("NetworkManager baslatilamadi!")
+            return False
+        return self._is_nm_running()
+
+    def _get_wifi_iface(self) -> str | None:
+        """WiFi arayuz adini don, yoksa None."""
+        net_dir = Path("/sys/class/net")
+        if not net_dir.exists():
+            return None
+        for iface in net_dir.iterdir():
+            if iface.name == "lo":
+                continue
+            if (iface / "wireless").is_dir():
+                return iface.name
+        return None
+
+    # ------------------------------------------------------------------
+    # Ana API
+    # ------------------------------------------------------------------
+
     def check_internet(self) -> bool:
-        """Internet baglantisi var mi? (ping yerine socket — iputils gerektirmez)."""
+        """Internet baglantisi var mi? (socket — iputils gerektirmez)."""
         import socket
         for host in ("1.1.1.1", "8.8.8.8"):
             try:
@@ -25,32 +75,57 @@ class NetworkManager:
         return False
 
     def ensure_wifi_up(self) -> bool:
-        """WiFi arayuzunun aktif oldugunu garanti et."""
-        # nmcli radio wifi durumunu kontrol et
+        """WiFi radyosunun acik oldugunu garanti et."""
+        # rfkill ile soft-block kaldir (bazi laptoplarda varsayilan bloklu)
+        run_cmd(["rfkill", "unblock", "wifi"], timeout=5)
+
         ok, output = run_cmd(["nmcli", "radio", "wifi"], timeout=10)
         if ok and "enabled" in output.lower():
             return True
 
-        # Kapali ise ac
         logger.info("WiFi radio aciliyor...")
         ok, _ = run_cmd(["nmcli", "radio", "wifi", "on"], timeout=10)
         if ok:
-            time.sleep(2)  # Arayuzun aktif olmasini bekle
+            time.sleep(2)
         return ok
 
     def scan_wifi(self) -> list[tuple[str, int]]:
         """WiFi aglarini tara. [(ssid, sinyal_gucu), ...] dondur."""
-        # Once WiFi arayuzunun aktif oldugunu garanti et
+        # 1. NetworkManager calisiyor mu?
+        if not self._ensure_nm():
+            logger.error("NetworkManager yok — WiFi taranamaz")
+            return []
+
+        # 2. WiFi arayuzu var mi?
+        wifi_iface = self._get_wifi_iface()
+        if not wifi_iface:
+            logger.error("WiFi arayuzu bulunamadi (/sys/class/net/*/wireless)")
+            return []
+        logger.info("WiFi arayuzu: %s", wifi_iface)
+
+        # 3. WiFi radyosu ac + rfkill kaldir
         self.ensure_wifi_up()
 
-        # Taze tarama zorla
+        # 4. Taze tarama zorla
         run_cmd(["nmcli", "dev", "wifi", "rescan"], timeout=10)
-        time.sleep(2)
+        time.sleep(3)
 
+        # 5. Ag listesi al (bos donerse bir kez daha dene)
+        networks = self._parse_wifi_list()
+        if not networks:
+            logger.info("Ilk tarama bos — 3sn sonra tekrar deneniyor...")
+            time.sleep(3)
+            networks = self._parse_wifi_list()
+
+        logger.info("WiFi tarama: %d ag bulundu", len(networks))
+        return networks
+
+    def _parse_wifi_list(self) -> list[tuple[str, int]]:
+        """nmcli wifi list ciktisini parse et."""
         ok, output = run_cmd([
             "nmcli", "-t", "-f", "SSID,SIGNAL", "dev", "wifi", "list",
         ], timeout=15)
-        if not ok:
+        if not ok or not output.strip():
             return []
 
         seen: set[str] = set()
@@ -69,7 +144,6 @@ class NetworkManager:
                 signal = 0
             networks.append((ssid, signal))
 
-        # Sinyal gucune gore sirala (yuksekten dusuge)
         networks.sort(key=lambda x: x[1], reverse=True)
         return networks
 
@@ -85,7 +159,6 @@ class NetworkManager:
         ], timeout=30)
         if ok:
             logger.info("WiFi baglandi: %s", ssid)
-            # Baglantiyi dogrulamak icin kisa bekle
             time.sleep(2)
         else:
             logger.error("WiFi basarisiz: %s — %s", ssid, output[:200])

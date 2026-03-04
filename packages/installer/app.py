@@ -33,6 +33,9 @@ class InstallerApp:
         """Tum adimlari sirayla calistir. 0=basari, 1=hata."""
         logger.info("=== KlipperOS-AI Installer v3.0 ===")
 
+        # 0. Klavye duzeni (sifre girisi oncesi zorunlu)
+        self._setup_keyboard()
+
         # 1. Hosgeldin
         WelcomeStep(tui=self.tui).run()
 
@@ -71,6 +74,22 @@ class InstallerApp:
             self._cleanup_and_reboot()
 
         return 0
+
+    def _setup_keyboard(self) -> None:
+        """Konsol klavye duzenini ayarla (sifre girisi oncesi zorunlu)."""
+        choice = self.tui.menu(
+            "Klavye Duzeni",
+            [("1", "Turkce Q"), ("2", "English US")],
+            text="Klavye duzeninizi secin:",
+        )
+        keymap = "trq" if choice == "1" else "us"
+        if not self.dry_run:
+            subprocess.run(
+                ["loadkeys", keymap],
+                capture_output=True,
+                timeout=5,
+            )
+        logger.info("Klavye duzeni: %s", keymap)
 
     def _cleanup_and_reboot(self) -> None:
         """First-boot sentinel'i sil, installer service'i devre disi birak, reboot."""

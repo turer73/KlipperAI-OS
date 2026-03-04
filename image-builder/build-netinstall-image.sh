@@ -147,8 +147,9 @@ PACKAGES=(
     # Python (wizard icin minimum)
     python3
 
-    # Wizard araclari (TUI)
+    # Wizard araclari (TUI + klavye)
     whiptail
+    kbd
 
     # Disk kurulumu icin
     parted

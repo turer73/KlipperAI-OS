@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 NEWT_COLORS = (
@@ -19,13 +20,32 @@ VERSION = "3.0.0"
 BACKTITLE = f"KlipperOS-AI v{VERSION} Kurulum"
 
 
+def _detect_terminal_size() -> tuple[int, int]:
+    """Terminal boyutunu oto-algila. (cols, rows) dondur."""
+    cols, rows = shutil.get_terminal_size((80, 24))
+    return cols, rows
+
+
 @dataclass
 class TUI:
-    """Whiptail tabanli terminal arayuzu wrapper."""
+    """Whiptail tabanli terminal arayuzu wrapper.
+
+    Terminal boyutu otomatik algilanir. Kucuk ekranlar (netbook vb.)
+    icin whiptail diyaloglari ekrana sigacak sekilde ayarlanir.
+    """
 
     dry_run: bool = False
-    width: int = 70
-    height: int = 20
+    width: int = field(default=0)
+    height: int = field(default=0)
+
+    def __post_init__(self):
+        """Terminal boyutuna gore width/height ayarla."""
+        if not self.dry_run and (self.width == 0 or self.height == 0):
+            cols, rows = _detect_terminal_size()
+            if self.width == 0:
+                self.width = min(cols - 4, 76)
+            if self.height == 0:
+                self.height = min(rows - 2, 24)
 
     def _escape(self, text: str) -> str:
         """Whiptail icin ozel karakterleri escape et."""
@@ -92,12 +112,16 @@ class TUI:
         if self.dry_run:
             return items[0][0] if items else ""
 
+        # Scroll alani: dialog yuksekligi - cerceve/baslik/buton (7 satir)
+        menu_height = min(len(items), self.height - 7)
+        menu_height = max(menu_height, 3)  # en az 3 satir gorsun
+
         args = ["--title", title]
         if default:
             args += ["--default-item", default]
         args += [
             "--menu", self._escape(text),
-            str(self.height), str(self.width), str(len(items)),
+            str(self.height), str(self.width), str(menu_height),
         ]
         for tag, desc in items:
             args += [tag, desc]

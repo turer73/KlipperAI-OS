@@ -21,9 +21,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="${SCRIPT_DIR}/build-netinstall"
 VERSION="4.0.0-netinstall"
 IMAGE_NAME="klipperos-v${VERSION}"
+
+# Build dizini: Linux native FS kullan (NTFS debootstrap'i bozar)
+BUILD_DIR="/tmp/kos-build"
 
 # Ubuntu Noble (24.04)
 UBUNTU_SUITE="noble"
@@ -33,7 +35,7 @@ ARCH="${ARCH:-amd64}"
 # Build dizinleri
 ROOTFS_DIR="${BUILD_DIR}/rootfs"
 ISO_DIR="${BUILD_DIR}/iso-staging"
-OUTPUT_ISO="${SCRIPT_DIR}/${IMAGE_NAME}.iso"
+OUTPUT_ISO="${BUILD_DIR}/${IMAGE_NAME}.iso"
 
 # Renkler
 GREEN='\033[0;32m'
@@ -140,6 +142,7 @@ PACKAGES=(
     # Ag (ilk boot'ta internet baglantisi icin zorunlu)
     network-manager
     wpasupplicant
+    rfkill
 
     # Python (wizard icin minimum)
     python3

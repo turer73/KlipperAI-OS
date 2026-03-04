@@ -111,7 +111,8 @@ def test_get_wifi_iface_not_found(tmp_path):
 def test_ensure_wifi_up_already_enabled():
     from packages.installer.network import NetworkManager
     nm = NetworkManager()
-    with patch("packages.installer.network.run_cmd") as mock_run:
+    with patch("shutil.which", return_value="/usr/sbin/rfkill"), \
+         patch("packages.installer.network.run_cmd") as mock_run:
         mock_run.side_effect = [
             (True, ""),        # rfkill unblock
             (True, "enabled"), # nmcli radio wifi
@@ -124,7 +125,8 @@ def test_ensure_wifi_up_already_enabled():
 def test_ensure_wifi_up_disabled():
     from packages.installer.network import NetworkManager
     nm = NetworkManager()
-    with patch("packages.installer.network.run_cmd") as mock_run:
+    with patch("shutil.which", return_value="/usr/sbin/rfkill"), \
+         patch("packages.installer.network.run_cmd") as mock_run:
         mock_run.side_effect = [
             (True, ""),         # rfkill unblock
             (True, "disabled"), # nmcli radio wifi check
@@ -134,6 +136,20 @@ def test_ensure_wifi_up_disabled():
             result = nm.ensure_wifi_up()
     assert result is True
     assert mock_run.call_count == 3
+
+
+def test_ensure_wifi_up_no_rfkill():
+    """rfkill yoksa atla, sadece nmcli ile devam et."""
+    from packages.installer.network import NetworkManager
+    nm = NetworkManager()
+    with patch("shutil.which", return_value=None), \
+         patch("packages.installer.network.run_cmd") as mock_run:
+        mock_run.side_effect = [
+            (True, "enabled"),  # nmcli radio wifi (rfkill atlanir)
+        ]
+        result = nm.ensure_wifi_up()
+    assert result is True
+    assert mock_run.call_count == 1  # sadece radio check, rfkill yok
 
 
 # ------------------------------------------------------------------

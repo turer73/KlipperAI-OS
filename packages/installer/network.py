@@ -77,7 +77,9 @@ class NetworkManager:
     def ensure_wifi_up(self) -> bool:
         """WiFi radyosunun acik oldugunu garanti et."""
         # rfkill ile soft-block kaldir (bazi laptoplarda varsayilan bloklu)
-        run_cmd(["rfkill", "unblock", "wifi"], timeout=5)
+        import shutil
+        if shutil.which("rfkill"):
+            run_cmd(["rfkill", "unblock", "wifi"], timeout=5)
 
         ok, output = run_cmd(["nmcli", "radio", "wifi"], timeout=10)
         if ok and "enabled" in output.lower():

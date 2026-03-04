@@ -32,21 +32,33 @@ class TUI:
         return text.replace('"', "").replace("'", "")
 
     def _run(self, args: list[str], capture: bool = False) -> str:
-        """Whiptail komutunu calistir."""
+        """Whiptail komutunu calistir.
+
+        capture=True olunca SADECE stderr pipe'lanir (secim degeri icin).
+        stdout terminale gider ki whiptail arayuzu gorunsun.
+
+        NOT: capture_output=True KULLANMA — stdout'u pipe'lar ve
+        systemd servisi (controlling terminal yok) ortaminda whiptail
+        arayuzu goruntulenemez.
+        """
         if self.dry_run:
             return ""
 
         env = {**dict(os.environ), "TERM": "linux", "NEWT_COLORS": NEWT_COLORS}
         cmd = ["whiptail", "--backtitle", BACKTITLE] + args
 
-        result = subprocess.run(
-            cmd,
-            capture_output=capture,
-            text=True,
-            env=env,
-        )
         if capture:
-            return result.stderr.strip()  # whiptail stderr'e yazar
+            # Sadece stderr yakala (secim degeri) — stdout terminalde kalsin (UI)
+            result = subprocess.run(
+                cmd,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+            return result.stderr.strip()
+
+        # infobox/msgbox — hicbir sey yakalama
+        subprocess.run(cmd, text=True, env=env)
         return ""
 
     def msgbox(self, title: str, text: str) -> None:

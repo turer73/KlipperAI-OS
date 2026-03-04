@@ -59,6 +59,16 @@ class TUI:
             str(self.height), str(self.width),
         ])
 
+    def infobox(self, title: str, text: str) -> None:
+        """Butonsuz bilgi mesaji — hemen doner, arka plan islemi icin."""
+        if self.dry_run:
+            return
+        self._run([
+            "--title", title,
+            "--infobox", self._escape(text),
+            str(self.height), str(self.width),
+        ])
+
     def menu(
         self,
         title: str,

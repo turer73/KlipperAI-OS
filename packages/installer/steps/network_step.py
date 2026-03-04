@@ -133,7 +133,7 @@ class NetworkStep:
 
     def _scan_networks(self) -> list[tuple[str, int]]:
         """WiFi aglarini tara, kullaniciya beklemesini soy."""
-        self.tui.msgbox(
+        self.tui.infobox(
             "WiFi Tarama",
             "WiFi aglari taraniyor...\n\n"
             "Lutfen bekleyin.",

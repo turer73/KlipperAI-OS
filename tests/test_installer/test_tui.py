@@ -54,3 +54,10 @@ def test_tui_dry_run_gauge():
     tui = TUI(dry_run=True)
     # dry_run modda gauge cagrilmaz, hata vermez
     tui.gauge("Kuruluyor...", 50)
+
+
+def test_tui_dry_run_infobox():
+    from packages.installer.tui import TUI
+    tui = TUI(dry_run=True)
+    # dry_run modda infobox cagrilmaz, hata vermez
+    tui.infobox("Tarama", "WiFi aglari taraniyor...")

@@ -27,13 +27,13 @@ class NetworkManager:
     def ensure_wifi_up(self) -> bool:
         """WiFi arayuzunun aktif oldugunu garanti et."""
         # nmcli radio wifi durumunu kontrol et
-        ok, output = run_cmd(["nmcli", "radio", "wifi"])
+        ok, output = run_cmd(["nmcli", "radio", "wifi"], timeout=10)
         if ok and "enabled" in output.lower():
             return True
 
         # Kapali ise ac
         logger.info("WiFi radio aciliyor...")
-        ok, _ = run_cmd(["nmcli", "radio", "wifi", "on"])
+        ok, _ = run_cmd(["nmcli", "radio", "wifi", "on"], timeout=10)
         if ok:
             time.sleep(2)  # Arayuzun aktif olmasini bekle
         return ok
@@ -49,7 +49,7 @@ class NetworkManager:
 
         ok, output = run_cmd([
             "nmcli", "-t", "-f", "SSID,SIGNAL", "dev", "wifi", "list",
-        ])
+        ], timeout=15)
         if not ok:
             return []
 

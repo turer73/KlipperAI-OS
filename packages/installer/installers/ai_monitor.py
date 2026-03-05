@@ -98,9 +98,9 @@ class AIMonitorInstaller(BaseInstaller):
 
         # Systemd services
         try:
-            with open("/etc/systemd/system/klipperos-ai-monitor.service", "w") as f:
+            with self._open_target("/etc/systemd/system/klipperos-ai-monitor.service") as f:
                 f.write(AI_MONITOR_SERVICE)
-            with open("/etc/systemd/system/kos-resource-manager.service", "w") as f:
+            with self._open_target("/etc/systemd/system/kos-resource-manager.service") as f:
                 f.write(RESOURCE_MANAGER_SERVICE)
             run_cmd(["systemctl", "daemon-reload"])
             run_cmd(["systemctl", "enable", "klipperos-ai-monitor"])

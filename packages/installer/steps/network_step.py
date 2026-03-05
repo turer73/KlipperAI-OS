@@ -1,12 +1,18 @@
 """Adim 3: Ag baglantisi — WiFi tarama, secim, parola, baglanti."""
 from __future__ import annotations
 
+import time
+
 from ..tui import TUI
 from ..network import NetworkManager as NetMgr
 from ..hw_detect import HardwareInfo
+from ..utils.logger import get_logger
 
+logger = get_logger()
 
 MAX_WIFI_RETRIES = 3
+MAX_ETH_RETRIES = 3
+ETH_WAIT_SECS = 10
 
 
 class NetworkStep:
@@ -16,27 +22,68 @@ class NetworkStep:
         self.net = NetMgr()
 
     def run(self) -> bool:
-        """Ag baglantisi adimi. True=internet var, False=yok."""
+        """Ag baglantisi adimi. True=internet var, False=yok/atla."""
         # WiFi varsa her zaman WiFi menusu goster
         if self.hw_info.has_wifi:
             return self._wifi_flow()
 
-        # WiFi yoksa sadece Ethernet kontrol
-        if self.net.check_internet():
-            self.tui.msgbox(
-                "Ag Baglantisi",
-                "Ethernet ile internet baglantisi mevcut.\n\n"
-                "Devam ediliyor...",
-            )
-            return True
+        # WiFi yoksa Ethernet kontrol (DHCP beklemeli)
+        return self._ethernet_flow()
 
-        self.tui.msgbox(
-            "Ag Baglantisi",
-            "Internet baglantisi bulunamadi!\n\n"
-            "WiFi algilanamadi.\n"
-            "Lutfen Ethernet kablo baglayip\n"
-            "kurulumu yeniden baslatin.",
+    def _ethernet_flow(self) -> bool:
+        """Ethernet ile internet kontrol — DHCP bekleme + retry."""
+        for attempt in range(1, MAX_ETH_RETRIES + 1):
+            self.tui.infobox(
+                "Ag Baglantisi",
+                f"Internet baglantisi kontrol ediliyor...\n\n"
+                f"Deneme {attempt}/{MAX_ETH_RETRIES}\n"
+                f"DHCP yapilandirilmasi bekleniyor...",
+            )
+            # DHCP icin biraz bekle (ozellikle yavaz VM ortamlarinda)
+            if attempt == 1:
+                time.sleep(ETH_WAIT_SECS)
+
+            if self.net.check_internet():
+                self.tui.msgbox(
+                    "Ag Baglantisi",
+                    "Ethernet ile internet baglantisi mevcut.\n\n"
+                    "Devam ediliyor...",
+                )
+                return True
+
+            logger.warning("Internet kontrol basarisiz (deneme %d/%d)",
+                           attempt, MAX_ETH_RETRIES)
+
+            if attempt < MAX_ETH_RETRIES:
+                retry = self.tui.yesno(
+                    f"Internet baglantisi bulunamadi.\n"
+                    f"(Deneme {attempt}/{MAX_ETH_RETRIES})\n\n"
+                    "Tekrar denemek ister misiniz?\n\n"
+                    "Ipucu: DHCP yapilandirilmasi\n"
+                    "birkac dakika surebilir.",
+                    title="Ag Baglantisi",
+                )
+                if not retry:
+                    return self._offer_skip_network()
+                time.sleep(ETH_WAIT_SECS)
+            else:
+                return self._offer_skip_network()
+
+        return False
+
+    def _offer_skip_network(self) -> bool:
+        """Internet yoksa kullaniciya devam secenegi sun."""
+        skip = self.tui.yesno(
+            "Internet baglantisi kurulamadi.\n\n"
+            "Ag olmadan devam etmek ister misiniz?\n\n"
+            "NOT: Paket kurulumu icin internet\n"
+            "gereklidir. Disk kurulumu ve temel\n"
+            "yapilandirma agsiz yapilabilir.",
+            title="Ag Olmadan Devam",
         )
+        if skip:
+            logger.warning("Kullanici ag olmadan devam etmeyi secti")
+            return True
         return False
 
     def _wifi_flow(self) -> bool:
@@ -75,8 +122,8 @@ class NetworkStep:
                     return True
                 return False
 
-            # Parola girisi
-            password = self.tui.passwordbox(
+            # Parola girisi (gizli veya acik mod)
+            password = self.tui.password_input(
                 f"\"{selected_ssid}\" agi icin WiFi sifresini girin:",
                 title="WiFi Sifresi",
             )

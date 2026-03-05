@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .target import target_path
+
 
 class Sentinel:
     """Bilesen kurulum durumunu dosya ile izler."""
@@ -11,7 +13,10 @@ class Sentinel:
         self.base_dir = Path(base_dir)
 
     def _path(self, component: str) -> Path:
-        return self.base_dir / f".installed-{component}"
+        # Lazy resolution: target_path her cagride degerlendirilir,
+        # boylece set_target() sonrasi dogru yolu dondurur.
+        raw = str(self.base_dir / f".installed-{component}")
+        return Path(target_path(raw))
 
     def is_done(self, component: str) -> bool:
         """Bilesen zaten kuruldu mu?"""

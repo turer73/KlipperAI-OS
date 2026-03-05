@@ -4,6 +4,7 @@ from __future__ import annotations
 from .base import BaseInstaller
 from ..utils.logger import get_logger
 from ..utils.runner import run_cmd
+from ..utils.target import target_path
 
 logger = get_logger()
 
@@ -69,8 +70,8 @@ class CrowsnestInstaller(BaseInstaller):
         # Config dosyasi
         try:
             import os
-            if not os.path.exists(CN_CONF):
-                with open(CN_CONF, "w") as f:
+            if not os.path.exists(target_path(CN_CONF)):
+                with self._open_target(CN_CONF) as f:
                     f.write(CN_CONFIG_TEMPLATE)
                 run_cmd(["chown", f"{KLIPPER_USER}:{KLIPPER_USER}", CN_CONF])
         except OSError as e:
@@ -79,8 +80,9 @@ class CrowsnestInstaller(BaseInstaller):
         # Systemd service (crowsnest kendi kurmadiysa)
         try:
             import os
-            if not os.path.exists("/etc/systemd/system/crowsnest.service"):
-                with open("/etc/systemd/system/crowsnest.service", "w") as f:
+            svc = target_path("/etc/systemd/system/crowsnest.service")
+            if not os.path.exists(svc):
+                with self._open_target("/etc/systemd/system/crowsnest.service") as f:
                     f.write(CN_SERVICE)
             run_cmd(["systemctl", "daemon-reload"])
             run_cmd(["systemctl", "enable", "crowsnest"])

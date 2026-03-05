@@ -4,6 +4,7 @@ from __future__ import annotations
 from .base import BaseInstaller
 from ..utils.logger import get_logger
 from ..utils.runner import run_cmd
+from ..utils.target import target_path
 
 logger = get_logger()
 
@@ -52,11 +53,12 @@ class TimelapseInstaller(BaseInstaller):
         # printer.cfg'ye include ekle
         pcfg = f"{KLIPPER_HOME}/printer_data/config/printer.cfg"
         try:
-            if os.path.exists(pcfg):
-                with open(pcfg, "r") as f:
+            real_pcfg = target_path(pcfg)
+            if os.path.exists(real_pcfg):
+                with open(real_pcfg, "r") as f:
                     content = f.read()
                 if "timelapse.cfg" not in content:
-                    with open(pcfg, "a") as f:
+                    with self._open_target(pcfg, "a") as f:
                         f.write("\n[include timelapse.cfg]\n")
         except OSError as e:
             logger.warning("printer.cfg timelapse include eklenemedi: %s", e)
@@ -64,11 +66,12 @@ class TimelapseInstaller(BaseInstaller):
         # moonraker.conf'a timelapse section ekle
         mcfg = f"{KLIPPER_HOME}/printer_data/config/moonraker.conf"
         try:
-            if os.path.exists(mcfg):
-                with open(mcfg, "r") as f:
+            real_mcfg = target_path(mcfg)
+            if os.path.exists(real_mcfg):
+                with open(real_mcfg, "r") as f:
                     content = f.read()
                 if "[timelapse]" not in content:
-                    with open(mcfg, "a") as f:
+                    with self._open_target(mcfg, "a") as f:
                         f.write(TIMELAPSE_MOONRAKER_SECTION)
         except OSError as e:
             logger.warning("moonraker.conf timelapse section eklenemedi: %s", e)

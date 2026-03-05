@@ -5,6 +5,7 @@ import subprocess
 
 from ..tui import TUI
 from ..utils.runner import run_cmd
+from ..utils.target import target_path, get_target
 from ..utils.logger import get_logger
 
 logger = get_logger()
@@ -16,12 +17,21 @@ class UserSetupStep:
         self.dry_run = dry_run
 
     def _set_password(self, password: str) -> bool:
-        """klipper kullanicisinin sifresini degistir."""
+        """klipper kullanicisinin sifresini degistir.
+
+        Disk kurulumda chpasswd chroot icinde calisir (run_cmd otomatik).
+        """
         if self.dry_run:
             return True
+        # chpasswd stdin'den okur — run_cmd stdin desteklemiyor,
+        # dogrudan subprocess kullanalim (chroot destekli)
+        target = get_target()
+        cmd = ["chpasswd"]
+        if target:
+            cmd = ["chroot", target, "chpasswd"]
         try:
             proc = subprocess.run(
-                ["chpasswd"],
+                cmd,
                 input=f"klipper:{password}\n",
                 capture_output=True,
                 text=True,
@@ -33,14 +43,24 @@ class UserSetupStep:
             return False
 
     def _set_hostname(self, hostname: str) -> bool:
-        """Hostname degistir."""
+        """Hostname degistir.
+
+        Disk kurulumda /etc/hostname ve /etc/hosts hedef diske yazilir.
+        hostnamectl atlanir (chroot icinde systemd yok).
+        """
         if self.dry_run:
             return True
         try:
-            with open("/etc/hostname", "w") as f:
+            from pathlib import Path
+            hostname_file = target_path("/etc/hostname")
+            Path(hostname_file).parent.mkdir(parents=True, exist_ok=True)
+            with open(hostname_file, "w") as f:
                 f.write(hostname + "\n")
+            # sed chroot icinde calisir (run_cmd otomatik)
             run_cmd(["sed", "-i", f"s/klipperos/{hostname}/g", "/etc/hosts"])
-            run_cmd(["hostnamectl", "set-hostname", hostname])
+            # hostnamectl sadece live modda — chroot'ta systemd yok
+            if get_target() is None:
+                run_cmd(["hostnamectl", "set-hostname", hostname])
             return True
         except OSError as e:
             logger.error("Hostname degistirme hatasi: %s", e)
@@ -48,16 +68,20 @@ class UserSetupStep:
 
     def run(self) -> bool:
         new_hostname = self.tui.inputbox(
-            "Cihaz adi (hostname):",
-            title="Hostname",
+            "Cihaz adi (hostname):\n\n"
+            "Ag uzerinde cihazinizin gorunecegi isim.\n"
+            "Ornek: klipperos, yazici1, ender3",
+            title="Cihaz Adi",
             default="klipperos",
         )
         if new_hostname and new_hostname != "klipperos":
             self._set_hostname(new_hostname)
             logger.info("Hostname: %s", new_hostname)
 
-        new_pass = self.tui.passwordbox(
-            "'klipper' kullanicisi icin yeni sifre\n(bos birakirsaniz varsayilan kalir):",
+        new_pass = self.tui.password_input(
+            "'klipper' kullanicisi icin yeni sifre:\n\n"
+            "SSH ve web erisimi icin kullanilir.\n"
+            "(bos birakirsaniz varsayilan kalir)",
             title="Kullanici Sifresi",
         )
         if new_pass:

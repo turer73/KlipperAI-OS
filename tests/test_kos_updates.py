@@ -36,12 +36,13 @@ class TestUpdatesPanel:
 
     @patch("tools.kos_update.git_check_updates")
     def test_check_repo(self, mock_check):
-        mock_check.return_value = {"has_updates": True, "behind_count": 5, "current_sha": "abc1234def"}
+        # git_check_updates returns tuple[bool, str]
+        mock_check.return_value = (True, "5 yeni commit")
         from kos_updates import _check_repo
         result = _check_repo("klipper", "/home/klipper/klipper")
         assert result["has_updates"] is True
         assert result["behind_count"] == 5
-        assert len(result["current_sha"]) == 7
+        assert result["name"] == "klipper"
 
     @patch("tools.kos_update.git_update")
     def test_update_repo(self, mock_update):

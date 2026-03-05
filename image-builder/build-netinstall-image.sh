@@ -519,6 +519,14 @@ if [ -f "$OUTPUT_ISO" ] && [ -s "$OUTPUT_ISO" ]; then
     echo -e "${CYAN}Klipper, AI, diger paketler ilk boot'ta internetten indirilir.${NC}"
     echo -e "${CYAN}WiFi ve Ethernet destegi varsayilan olarak aktif.${NC}"
 
+    # Windows'a otomatik kopyala (WSL ortamindaysa)
+    WIN_DEST="/mnt/c/linux_ai/${IMAGE_NAME}.iso"
+    if [ -d "/mnt/c/linux_ai" ]; then
+        log "ISO Windows dizinine kopyalaniyor: ${WIN_DEST}"
+        cp "$OUTPUT_ISO" "$WIN_DEST"
+        log "Kopyalandi: ${WIN_DEST}"
+    fi
+
     if [ "${CLEANUP:-1}" = "1" ]; then
         rm -rf "$ISO_DIR"
         rm -f "${BUILD_DIR}/efi.img" "${BUILD_DIR}/core.img"

@@ -62,16 +62,24 @@ class NetworkManager:
     # Ana API
     # ------------------------------------------------------------------
 
-    def check_internet(self) -> bool:
-        """Internet baglantisi var mi? (socket — iputils gerektirmez)."""
+    def check_internet(self, retries: int = 3) -> bool:
+        """Internet baglantisi var mi? (socket — iputils gerektirmez).
+
+        Yavaz ortamlarda (QEMU TCG vb.) birden fazla deneme yapar.
+        """
         import socket
-        for host in ("1.1.1.1", "8.8.8.8"):
-            try:
-                sock = socket.create_connection((host, 53), timeout=3)
-                sock.close()
-                return True
-            except OSError:
-                continue
+        for attempt in range(retries):
+            for host in ("1.1.1.1", "8.8.8.8"):
+                try:
+                    sock = socket.create_connection((host, 53), timeout=5)
+                    sock.close()
+                    return True
+                except OSError:
+                    continue
+            if attempt < retries - 1:
+                logger.info("Internet kontrol %d/%d basarisiz, tekrar deneniyor...",
+                            attempt + 1, retries)
+                time.sleep(2)
         return False
 
     def ensure_wifi_up(self) -> bool:

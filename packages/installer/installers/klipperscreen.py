@@ -62,7 +62,7 @@ class KlipperScreenInstaller(BaseInstaller):
             logger.warning("KlipperScreen pip basarisiz — requirements eksik olabilir")
 
         try:
-            with open("/etc/systemd/system/KlipperScreen.service", "w") as f:
+            with self._open_target("/etc/systemd/system/KlipperScreen.service") as f:
                 f.write(KS_SERVICE)
             run_cmd(["systemctl", "daemon-reload"])
             run_cmd(["systemctl", "enable", "KlipperScreen"])

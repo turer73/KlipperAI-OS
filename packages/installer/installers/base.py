@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from ..utils.logger import get_logger
 from ..utils.sentinel import Sentinel
+from ..utils.target import target_path
 
 logger = get_logger()
 
@@ -16,6 +18,16 @@ class BaseInstaller(ABC):
 
     def __init__(self, sentinel: Sentinel | None = None):
         self.sentinel = sentinel or Sentinel()
+
+    def _open_target(self, path: str, mode: str = "w"):
+        """Hedef diske yonlendirilmis dosya ac.
+
+        Live CD'de dogrudan path'e yazar.
+        Disk kurulumda target_path() ile /mnt/target altina yonlendirir.
+        """
+        real = target_path(path)
+        Path(real).parent.mkdir(parents=True, exist_ok=True)
+        return open(real, mode)
 
     def install(self) -> bool:
         """Bileseni kur. Zaten kuruluysa atla."""

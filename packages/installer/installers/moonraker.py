@@ -66,7 +66,7 @@ class MoonrakerInstaller(BaseInstaller):
             return False
 
         try:
-            with open("/etc/systemd/system/moonraker.service", "w") as f:
+            with self._open_target("/etc/systemd/system/moonraker.service") as f:
                 f.write(MOONRAKER_SERVICE)
             run_cmd(["systemctl", "daemon-reload"])
             run_cmd(["systemctl", "enable", "moonraker"])

@@ -1,11 +1,23 @@
-"""Subprocess wrapper."""
+"""Subprocess wrapper — chroot destekli."""
 from __future__ import annotations
 
 import subprocess
 
 from .logger import get_logger
+from .target import get_target
 
 logger = get_logger()
+
+# Host'ta calismasi gereken komutlar — chroot YAPILMAZ.
+# Bunlar dogrudan donanim/disk/mount islemleridir.
+_HOST_COMMANDS = frozenset({
+    "mount", "umount",
+    "parted", "mkfs.ext4", "mkfs.vfat", "mkswap",
+    "unsquashfs", "grub-install",
+    "lsblk", "blkid", "findmnt",
+    "loadkeys",
+    "ln", "rm", "cp", "rsync",
+})
 
 
 def run_cmd(
@@ -13,7 +25,15 @@ def run_cmd(
     timeout: int = 600,
     check: bool = False,
 ) -> tuple[bool, str]:
-    """Komut calistir, (basari, cikti) dondur."""
+    """Komut calistir, (basari, cikti) dondur.
+
+    Target set edilmisse komutlar otomatik chroot icinde calisir.
+    _HOST_COMMANDS listesindeki komutlar her zaman host'ta calisir.
+    """
+    target = get_target()
+    if target and cmd[0] not in _HOST_COMMANDS:
+        cmd = ["chroot", target] + cmd
+
     logger.debug("CMD: %s", " ".join(cmd))
     try:
         result = subprocess.run(

@@ -31,7 +31,8 @@ class TestSystemInfo:
             "cpu_thermal": [MagicMock(current=52.3)]
         }
 
-        with patch.dict("sys.modules", {"psutil": mock_psutil}):
+        with patch("kos_system_api.psutil", mock_psutil), \
+             patch("kos_system_api.HAS_PSUTIL", True):
             info = api.get_cpu_info()
 
         assert info["usage_percent"] == 23.5
@@ -52,7 +53,8 @@ class TestSystemInfo:
             used=104857600,         # ~100 MB
         )
 
-        with patch.dict("sys.modules", {"psutil": mock_psutil}):
+        with patch("kos_system_api.psutil", mock_psutil), \
+             patch("kos_system_api.HAS_PSUTIL", True):
             info = api.get_memory_info()
 
         assert info["total_mb"] == 1024.0
@@ -71,7 +73,8 @@ class TestSystemInfo:
             percent=50.0,
         )
 
-        with patch.dict("sys.modules", {"psutil": mock_psutil}):
+        with patch("kos_system_api.psutil", mock_psutil), \
+             patch("kos_system_api.HAS_PSUTIL", True):
             info = api.get_disk_info()
 
         assert info["total_gb"] == pytest.approx(30.0, abs=0.1)
@@ -82,11 +85,9 @@ class TestSystemInfo:
     def test_get_uptime(self, api):
         # Simulate 2 days, 3 hours, 45 minutes, 12 seconds of uptime
         total_seconds = 2 * 86400 + 3 * 3600 + 45 * 60 + 12
-        result = MagicMock()
-        result.returncode = 0
-        result.stdout = str(total_seconds) + "\n"
+        fake_proc = f"{total_seconds}.99 12345.67\n"
 
-        with patch.object(api, '_run', return_value=result):
+        with patch("builtins.open", mock_open(read_data=fake_proc)):
             uptime = api.get_uptime()
 
         assert "2g" in uptime
@@ -115,7 +116,7 @@ class TestNetworkOperations:
 
         assert len(networks) == 3
         assert networks[0]["ssid"] == "MyNetwork"
-        assert networks[0]["signal"] == "85"
+        assert networks[0]["signal"] == 85
         assert networks[0]["security"] == "WPA2"
         assert networks[2]["security"] == ""
 

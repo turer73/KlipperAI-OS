@@ -166,12 +166,28 @@ class TUI:
         return self._run(args, capture=True)
 
     def gauge(self, text: str, percent: int) -> None:
-        """Ilerleme cubugu."""
+        """Ilerleme cubugu — progress() ile goster (non-blocking)."""
+        self.progress("Kurulum", text, percent)
+
+    def progress(self, title: str, text: str, percent: int) -> None:
+        """ASCII progress bar + infobox ile ilerleme gosterimi (non-blocking)."""
         if self.dry_run:
             return
-        # gauge icin stdin pipe gerekir — bu basit versiyon sadece msgbox gosterir
-        self._run([
-            "--title", "Kurulum",
-            "--gauge", self._escape(text),
-            "8", str(self.width), str(percent),
-        ])
+        bar_w = min(self.width - 10, 50)
+        filled = int(bar_w * percent / 100)
+        bar = "#" * filled + "." * (bar_w - filled)
+        self.infobox(title, f"{text}\n\n  [{bar}] %{percent}")
+
+    def password_input(self, text: str, title: str = "") -> str:
+        """Sifre girisi — gizli veya gorunur mod secenegi."""
+        if self.dry_run:
+            return ""
+        show = self.yesno(
+            "Sifreyi gorunur yazmak ister misiniz?\n\n"
+            "Evet = Gorunur (acik)\n"
+            "Hayir = Gizli (****)",
+            title="Sifre Modu",
+        )
+        if show:
+            return self.inputbox(text, title=title)
+        return self.passwordbox(text, title=title)

@@ -71,7 +71,7 @@ class KlipperInstaller(BaseInstaller):
             return False
 
         try:
-            with open("/etc/systemd/system/klipper.service", "w") as f:
+            with self._open_target("/etc/systemd/system/klipper.service") as f:
                 f.write(KLIPPER_SERVICE)
             run_cmd(["systemctl", "daemon-reload"])
             run_cmd(["systemctl", "enable", "klipper"])

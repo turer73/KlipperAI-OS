@@ -34,6 +34,7 @@ try:
     from adaptive_print import AdaptivePrintController
     from predictive_maintenance import PredictiveMaintenanceEngine
     from autonomous_recovery import AutonomousRecoveryEngine
+    from bed_level_analyzer import DriftDetector
 except ImportError:
     from .frame_capture import FrameCapture
     from .spaghetti_detect import SpaghettiDetector
@@ -44,6 +45,7 @@ except ImportError:
     from .adaptive_print import AdaptivePrintController
     from .predictive_maintenance import PredictiveMaintenanceEngine
     from .autonomous_recovery import AutonomousRecoveryEngine
+    from .bed_level_analyzer import DriftDetector
 
 # --- Logging ---
 logging.basicConfig(
@@ -82,6 +84,20 @@ class MoonrakerClient:
             return resp.json().get("result", {}).get("status", {})
         except Exception as e:
             logger.debug("Yazici durumu alinamadi: %s", e)
+            return {}
+
+    def get_bed_mesh(self) -> dict:
+        """Get current bed mesh data."""
+        try:
+            resp = requests.get(
+                f"{self.base_url}/printer/objects/query",
+                params={"bed_mesh": "profile_name,profiles,mesh_matrix"},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {}).get("status", {})
+            return data.get("bed_mesh", {})
+        except Exception:
             return {}
 
     def is_printing(self) -> bool:
@@ -312,6 +328,11 @@ class PrintMonitor:
         )
         self._autorecovery_enabled = os.environ.get("AUTORECOVERY_ENABLED", "0").lower() in ("1", "true", "yes", "on")
 
+        # Bed Level Analyzer (Phase 5)
+        self.drift_detector = DriftDetector()
+        self._bed_level_enabled = os.environ.get("BED_LEVEL_CHECK", "1").lower() not in ("0", "false", "no", "off")
+        self._bed_level_checked = False
+
     def start(self):
         """Monitor'u baslat."""
         logger.info("=" * 50)
@@ -357,6 +378,12 @@ class PrintMonitor:
         else:
             logger.info("Autonomous Recovery devre disi. AUTORECOVERY_ENABLED=1 ile aktiflestirebilirsiniz.")
 
+        # Bed Level Check baslatma
+        if self._bed_level_enabled:
+            logger.info("Bed Level Check aktif. Baski oncesi mesh kontrol yapilacak.")
+        else:
+            logger.info("Bed Level Check devre disi. BED_LEVEL_CHECK=1 ile aktiflestirebilirsiniz.")
+
         # Ana dongu
         self._running = True
         logger.info("Monitor aktif. Kontrol dongusu basliyor...")
@@ -382,6 +409,10 @@ class PrintMonitor:
                     self.adaptive_print.reset()
                     self.adaptive_thresholds = AdaptiveThresholdEngine()
                     logger.info("Adaptive: baski bitti, durum sifirlandi.")
+                # Bed Level: post-print snapshot
+                if self._bed_level_enabled:
+                    self._bed_level_post_print()
+                    self._bed_level_checked = False
                 # Predictive Maintenance: baski saati ekle
                 if self._maintenance_enabled and self._print_start_time > 0:
                     hours = (time.time() - self._print_start_time) / 3600
@@ -405,6 +436,11 @@ class PrintMonitor:
                 if speed > 0 and temp > 0:
                     self.adaptive_print.set_base_params(speed=speed, temp=temp)
                     logger.info("Adaptive: baski basladi, base speed=%.0f temp=%.0f", speed, temp)
+
+            # Bed Level Check
+            if self._bed_level_enabled and not self._bed_level_checked:
+                self._bed_level_pre_print_check()
+                self._bed_level_checked = True
 
         # Kameradan frame yakala
         frame = self.capture.capture()
@@ -755,6 +791,45 @@ class PrintMonitor:
 
             self._calibration_done = True
             logger.info("FlowGuard kalibrasyon tamamlandi. 4-katman tespit aktif.")
+
+    def _bed_level_pre_print_check(self):
+        """Baski oncesi bed mesh kontrol."""
+        mesh_data = self.moonraker.get_bed_mesh()
+        profile = mesh_data.get("profile_name", "")
+        if not profile:
+            self.moonraker.send_notification(
+                "KOS UYARI: Aktif bed mesh yok! "
+                "KOS_BED_LEVEL_CALIBRATE calistirin."
+            )
+            logger.warning("Bed Level: aktif mesh yok")
+            return
+
+        mesh_matrix = mesh_data.get("mesh_matrix", [])
+        if mesh_matrix:
+            report = self.drift_detector.check_drift(profile, mesh_matrix)
+            if report.recommendation == "recalibrate":
+                self.moonraker.send_notification(
+                    f"KOS: Kritik bed level drift ({report.max_point_drift:.2f}mm). "
+                    "Yeniden kalibrasyon onerilir."
+                )
+                logger.warning("Bed Level: drift %.3fmm — recalibrate", report.max_point_drift)
+            elif report.recommendation == "check_screws":
+                self.moonraker.send_notification(
+                    f"KOS: Bed level drift algilandi ({report.max_point_drift:.2f}mm). "
+                    "Vida kontrolu onerilir."
+                )
+                logger.info("Bed Level: drift %.3fmm — check screws", report.max_point_drift)
+            else:
+                logger.info("Bed Level: mesh OK (drift %.3fmm)", report.max_point_drift)
+
+    def _bed_level_post_print(self):
+        """Baski sonrasi mesh snapshot al."""
+        mesh_data = self.moonraker.get_bed_mesh()
+        profile = mesh_data.get("profile_name", "")
+        mesh_matrix = mesh_data.get("mesh_matrix", [])
+        if profile and mesh_matrix:
+            self.drift_detector.add_snapshot(profile, mesh_matrix)
+            logger.info("Bed Level: post-print snapshot kaydedildi (%s)", profile)
 
     @property
     def stats(self) -> dict:

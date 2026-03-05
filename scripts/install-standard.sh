@@ -144,6 +144,9 @@ allowed_users=anybody
 needs_root_rights=yes
 XWRAP
 
+    # klipper kullanicisina tty/input/video erisimi (X icin gerekli)
+    usermod -aG input,tty,video "$KLIPPER_USER" 2>/dev/null || true
+
     cat > /etc/systemd/system/KlipperScreen.service << KSSERVICE
 [Unit]
 Description=KlipperScreen Touch/Mouse UI
@@ -152,7 +155,11 @@ After=network.target moonraker.service
 [Service]
 Type=simple
 User=${KLIPPER_USER}
-ExecStart=/usr/bin/xinit ${ks_venv}/bin/python ${KLIPPER_HOME}/KlipperScreen/screen.py -- :0 -nolisten tcp
+SupplementaryGroups=tty video input
+TTYPath=/dev/tty7
+StandardInput=tty
+StandardOutput=tty
+ExecStart=/usr/bin/xinit ${ks_venv}/bin/python ${KLIPPER_HOME}/KlipperScreen/screen.py -- :0 vt7 -nolisten tcp -keeptty
 Restart=always
 RestartSec=10
 ${ks_nice}

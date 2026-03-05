@@ -95,6 +95,9 @@ class BedLevelStep:
         # 4. Ozet
         self._show_summary()
 
+        # Config dosyasini hedef diske yaz
+        self._write_config_to_disk()
+
         result = {
             "skipped": False,
             "probe_type": self.probe_type,
@@ -160,6 +163,27 @@ class BedLevelStep:
         lines.append("\nBu ayarlar printer.cfg'ye yazilacak.")
 
         self.tui.msgbox("Bed Level Ozeti", "\n".join(lines))
+
+    def _write_config_to_disk(self) -> None:
+        """Olusan config'i hedef diske yaz."""
+        from pathlib import Path
+        from ..utils.target import target_path, get_target
+
+        if not get_target():
+            logger.info("Disk hedefi yok — config yazma atlandi (live CD modu).")
+            return
+
+        try:
+            config_text = self.generate_config()
+            cfg_path = target_path(
+                "/home/klipper/printer_data/config/kos_bed_level_wizard.cfg"
+            )
+            Path(cfg_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(cfg_path, "w") as f:
+                f.write(config_text)
+            logger.info("Bed level config yazildi: %s", cfg_path)
+        except OSError as e:
+            logger.error("Bed level config yazilamadi: %s", e)
 
     def generate_config(self) -> str:
         """Klipper config blogu olustur."""

@@ -100,6 +100,16 @@ class DriftReport:
     days_since_calibration: float = 0.0
 
 
+@dataclass
+class TrendResult:
+    """Zaman serisi drift trend analizi."""
+    trend_direction: str = "stable"      # "improving" / "stable" / "worsening"
+    avg_drift_per_day: float = 0.0
+    snapshots_analyzed: int = 0
+    days_analyzed: float = 0.0
+    forecast_days_to_recalibrate: float = -1.0  # -1 = belirsiz
+
+
 # --- MeshAnalyzer ---
 
 class MeshAnalyzer:
@@ -399,7 +409,7 @@ class DriftDetector:
         if not snaps:
             return DriftReport(recommendation="ok")
 
-        ref = snaps[0]
+        ref = snaps[-1]  # En son kalibrasyon noktasina gore drift olc
         diffs = []
         for row_cur, row_ref in zip(current_mesh, ref.mesh_matrix):
             for vc, vr in zip(row_cur, row_ref):
@@ -438,3 +448,59 @@ class DriftDetector:
         """Yeniden kalibrasyon gerekli mi?"""
         report = self.check_drift(profile, current_mesh)
         return report.recommendation == "recalibrate"
+
+    def get_drift_trend(
+        self, profile: str, window_days: float = TREND_WINDOW_DAYS,
+    ) -> TrendResult:
+        """Zaman penceresi icinde drift trendini hesapla (lineer regresyon)."""
+        snaps = self._snapshots.get(profile, [])
+        if len(snaps) < 2:
+            return TrendResult(snapshots_analyzed=len(snaps))
+
+        cutoff = time.time() - (window_days * 86400)
+        recent = [s for s in snaps if s.timestamp >= cutoff]
+        if len(recent) < 2:
+            recent = snaps[-2:]  # en az 2 snapshot ile calis
+
+        # mesh_range zaman serisi — lineer regresyon
+        t0 = recent[0].timestamp
+        points = [(s.timestamp - t0, s.mesh_range) for s in recent]
+        days_span = (recent[-1].timestamp - recent[0].timestamp) / 86400
+
+        n = len(points)
+        sum_x = sum(t for t, _ in points)
+        sum_y = sum(r for _, r in points)
+        sum_xy = sum(t * r for t, r in points)
+        sum_x2 = sum(t * t for t, _ in points)
+        denom = n * sum_x2 - sum_x * sum_x
+
+        if abs(denom) < 1e-12:
+            slope_per_sec = 0.0
+        else:
+            slope_per_sec = (n * sum_xy - sum_x * sum_y) / denom
+
+        slope_per_day = slope_per_sec * 86400
+
+        # Trend yonu
+        if slope_per_day > 0.005:
+            direction = "worsening"
+        elif slope_per_day < -0.005:
+            direction = "improving"
+        else:
+            direction = "stable"
+
+        # Tahmin: ne zaman recalibrate esigine ulasir
+        forecast = -1.0
+        if slope_per_day > 0.001:
+            current_range = recent[-1].mesh_range
+            remaining = self.recalibrate_threshold - current_range
+            if remaining > 0:
+                forecast = remaining / slope_per_day
+
+        return TrendResult(
+            trend_direction=direction,
+            avg_drift_per_day=slope_per_day,
+            snapshots_analyzed=len(recent),
+            days_analyzed=days_span,
+            forecast_days_to_recalibrate=forecast,
+        )

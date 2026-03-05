@@ -9,7 +9,7 @@ import math
 from pathlib import Path
 
 from bed_level_analyzer import (
-    MeshReport, ScrewAdjustment, MeshSnapshot, DriftReport,
+    MeshReport, ScrewAdjustment, MeshSnapshot, DriftReport, TrendResult,
     MeshAnalyzer, ProfileManager, DriftDetector,
 )
 
@@ -100,10 +100,10 @@ class TestProfileManager:
     """ProfileManager: mesh profil yonetimi — filament+yuzey combo."""
 
     def setup_method(self):
-        self.pm = ProfileManager(state_path=Path("/tmp/kos_test_profiles.json"))
-        # Temiz baslat
-        if self.pm.state_path.exists():
-            self.pm.state_path.unlink()
+        path = Path("/tmp/kos_test_profiles.json")
+        if path.exists():
+            path.unlink()
+        self.pm = ProfileManager(state_path=path)
 
     def test_save_and_load_profile(self):
         """Profil kaydet ve geri yukle."""
@@ -153,9 +153,10 @@ class TestDriftDetector:
     """DriftDetector: mesh drift izleme ve yeniden kalibrasyon onerisi."""
 
     def setup_method(self):
-        self.dd = DriftDetector(state_path=Path("/tmp/kos_test_drift.json"))
-        if self.dd.state_path.exists():
-            self.dd.state_path.unlink()
+        path = Path("/tmp/kos_test_drift.json")
+        if path.exists():
+            path.unlink()
+        self.dd = DriftDetector(state_path=path)
 
     def test_no_drift_on_first_snapshot(self):
         """Ilk snapshot — drift yok."""
@@ -185,3 +186,56 @@ class TestDriftDetector:
         mesh_same = [[0.05, 0.06], [0.05, 0.05]]
         self.dd.add_snapshot("default", mesh_ref, bed_temp=60.0)
         assert not self.dd.should_recalibrate("default", mesh_same)
+
+    def test_check_drift_uses_latest_snapshot(self):
+        """check_drift en son snapshot'i referans alir."""
+        import time as _time
+        mesh_old = [[0.0, 0.0], [0.0, 0.0]]
+        mesh_mid = [[0.05, 0.05], [0.05, 0.05]]
+        mesh_cur = [[0.06, 0.06], [0.06, 0.06]]
+        self.dd.add_snapshot("default", mesh_old, bed_temp=60.0)
+        self.dd.add_snapshot("default", mesh_mid, bed_temp=60.0)
+        report = self.dd.check_drift("default", mesh_cur)
+        # Referans mesh_mid (snaps[-1]) — drift ~0.01mm, "ok" olmali
+        assert report.max_point_drift == pytest.approx(0.01, abs=0.005)
+        assert report.recommendation == "ok"
+
+    def test_drift_trend_insufficient_data(self):
+        """Tek snapshot — varsayilan TrendResult."""
+        mesh = [[0.0, 0.0], [0.0, 0.0]]
+        self.dd.add_snapshot("default", mesh)
+        trend = self.dd.get_drift_trend("default")
+        assert trend.snapshots_analyzed <= 1
+        assert trend.trend_direction == "stable"
+
+    def test_drift_trend_stable(self):
+        """Ayni mesh_range ile stabil trend."""
+        import time as _time
+        mesh = [[0.05, 0.0], [0.0, 0.0]]  # range=0.05
+        # 3 snapshot ekle (farkli timestamp ile)
+        for i in range(3):
+            self.dd.add_snapshot("default", mesh)
+            # Timestamp farkli olsun
+            snaps = self.dd._snapshots["default"]
+            snaps[-1].timestamp = _time.time() - (2 - i) * 86400
+        trend = self.dd.get_drift_trend("default")
+        assert trend.trend_direction == "stable"
+        assert trend.snapshots_analyzed >= 2
+
+    def test_drift_trend_worsening(self):
+        """Artan mesh_range ile kotulesen trend."""
+        import time as _time
+        base_time = _time.time() - 5 * 86400
+        # range giderek artan mesh'ler
+        meshes = [
+            [[0.02, 0.0], [0.0, 0.0]],   # range=0.02
+            [[0.05, 0.0], [0.0, 0.0]],   # range=0.05
+            [[0.08, 0.0], [0.0, 0.0]],   # range=0.08
+        ]
+        for i, m in enumerate(meshes):
+            self.dd.add_snapshot("default", m)
+            snaps = self.dd._snapshots["default"]
+            snaps[-1].timestamp = base_time + i * 86400
+        trend = self.dd.get_drift_trend("default")
+        assert trend.trend_direction == "worsening"
+        assert trend.avg_drift_per_day > 0

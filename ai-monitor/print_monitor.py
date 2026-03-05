@@ -831,6 +831,24 @@ class PrintMonitor:
             self.drift_detector.add_snapshot(profile, mesh_matrix)
             logger.info("Bed Level: post-print snapshot kaydedildi (%s)", profile)
 
+            # Trend analizi
+            trend = self.drift_detector.get_drift_trend(profile)
+            if trend.trend_direction == "worsening":
+                msg = (
+                    f"KOS: Bed level trend kotulesiyor "
+                    f"({trend.avg_drift_per_day:.3f}mm/gun)."
+                )
+                if trend.forecast_days_to_recalibrate > 0:
+                    msg += (
+                        f" Tahmini kalibrasyon: "
+                        f"{trend.forecast_days_to_recalibrate:.0f} gun"
+                    )
+                self.moonraker.send_notification(msg)
+                logger.warning(
+                    "Bed Level trend: %s (%.4f mm/gun)",
+                    trend.trend_direction, trend.avg_drift_per_day,
+                )
+
     @property
     def stats(self) -> dict:
         """Monitor istatistikleri."""

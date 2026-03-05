@@ -137,16 +137,24 @@ KSCONF
         ks_nice="Nice=10"
     fi
 
-    # Xwrapper: klipper kullanicisinin X baslatmasina izin ver
+    # Xwrapper config
     mkdir -p /etc/X11
     cat > /etc/X11/Xwrapper.config << 'XWRAP'
 allowed_users=anybody
 needs_root_rights=yes
 XWRAP
 
-    # klipper kullanicisina tty/input/video erisimi (X icin gerekli)
-    usermod -aG input,tty,video "$KLIPPER_USER" 2>/dev/null || true
+    # klipper kullanicisina input/video erisimi
+    usermod -aG input,video "$KLIPPER_USER" 2>/dev/null || true
 
+    # Wrapper script: X root olarak baslar, KlipperScreen klipper olarak calisir
+    cat > /usr/local/bin/klipperscreen-start.sh << STARTWRAP
+#!/bin/bash
+exec /usr/bin/xinit /bin/su -s /bin/sh ${KLIPPER_USER} -c '${ks_venv}/bin/python ${KLIPPER_HOME}/KlipperScreen/screen.py' -- :0 vt7 -nolisten tcp -keeptty
+STARTWRAP
+    chmod +x /usr/local/bin/klipperscreen-start.sh
+
+    # Service root olarak calisir — X server VT erisimi icin root gerekli
     cat > /etc/systemd/system/KlipperScreen.service << KSSERVICE
 [Unit]
 Description=KlipperScreen Touch/Mouse UI
@@ -154,12 +162,10 @@ After=network.target moonraker.service
 
 [Service]
 Type=simple
-User=${KLIPPER_USER}
-SupplementaryGroups=tty video input
 TTYPath=/dev/tty7
 StandardInput=tty
 StandardOutput=tty
-ExecStart=/usr/bin/xinit ${ks_venv}/bin/python ${KLIPPER_HOME}/KlipperScreen/screen.py -- :0 vt7 -nolisten tcp -keeptty
+ExecStart=/usr/local/bin/klipperscreen-start.sh
 Restart=always
 RestartSec=10
 ${ks_nice}

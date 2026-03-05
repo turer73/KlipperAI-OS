@@ -39,34 +39,43 @@ else
 fi
 
 ###############################################################################
-# 1. Load zram kernel module
+# 1. Check if zram swap is already active
 ###############################################################################
-echo "[kos-zram] Loading zram kernel module ..."
-modprobe zram num_devices=1
+if swapon --show=NAME,TYPE 2>/dev/null | grep -q zram; then
+    echo "[kos-zram] zram swap zaten aktif — yapilandirma atlaniyor."
+    echo "[kos-zram] Sadece sysctl ve earlyoom yapilandirilacak."
+    ZRAM_ALREADY_ACTIVE=true
+else
+    ZRAM_ALREADY_ACTIVE=false
+fi
 
 ###############################################################################
-# 2. Calculate zram size (ZRAM_PCT% of total RAM, in bytes)
+# 2. Load zram kernel module & configure (skip if already active)
 ###############################################################################
-ZRAM_SIZE_BYTES=$(( TOTAL_KB * 1024 * ZRAM_PCT / 100 ))
-echo "[kos-zram] Total RAM: ${TOTAL_MB} MB  ->  zram disk size: $(( ZRAM_SIZE_BYTES / 1024 / 1024 )) MB (${ZRAM_PCT}%)"
+if [ "$ZRAM_ALREADY_ACTIVE" = false ]; then
+    echo "[kos-zram] Loading zram kernel module ..."
+    modprobe zram num_devices=1
 
-###############################################################################
-# 3. Configure zram0 device
-###############################################################################
-echo "[kos-zram] Setting compression algorithm to ${COMP_ALGO} ..."
-echo "${COMP_ALGO}" > /sys/block/zram0/comp_algorithm
+    ZRAM_SIZE_BYTES=$(( TOTAL_KB * 1024 * ZRAM_PCT / 100 ))
+    echo "[kos-zram] Total RAM: ${TOTAL_MB} MB  ->  zram disk size: $(( ZRAM_SIZE_BYTES / 1024 / 1024 )) MB (${ZRAM_PCT}%)"
 
-echo "[kos-zram] Setting disk size to ${ZRAM_SIZE_BYTES} bytes ..."
-echo "${ZRAM_SIZE_BYTES}" > /sys/block/zram0/disksize
+    # Reset zram0 if it exists but is not in use
+    if [ -f /sys/block/zram0/reset ]; then
+        echo 1 > /sys/block/zram0/reset 2>/dev/null || true
+    fi
 
-###############################################################################
-# 4. Create and activate swap
-###############################################################################
-echo "[kos-zram] Creating swap on ${ZRAM_DEV} ..."
-mkswap "${ZRAM_DEV}"
+    echo "[kos-zram] Setting compression algorithm to ${COMP_ALGO} ..."
+    echo "${COMP_ALGO}" > /sys/block/zram0/comp_algorithm
 
-echo "[kos-zram] Activating swap with priority ${SWAP_PRIORITY} ..."
-swapon -p "${SWAP_PRIORITY}" "${ZRAM_DEV}"
+    echo "[kos-zram] Setting disk size to ${ZRAM_SIZE_BYTES} bytes ..."
+    echo "${ZRAM_SIZE_BYTES}" > /sys/block/zram0/disksize
+
+    echo "[kos-zram] Creating swap on ${ZRAM_DEV} ..."
+    mkswap "${ZRAM_DEV}"
+
+    echo "[kos-zram] Activating swap with priority ${SWAP_PRIORITY} ..."
+    swapon -p "${SWAP_PRIORITY}" "${ZRAM_DEV}"
+fi
 
 ###############################################################################
 # 5. Apply runtime kernel parameters

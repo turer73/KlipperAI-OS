@@ -476,9 +476,9 @@ setup_zram() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-    # zram yapilandirmasi
+    # zram yapilandirmasi (hata toleransli — boot servisinde duzgun calisacak)
     if [ -x "${script_dir}/setup-zram.sh" ]; then
-        bash "${script_dir}/setup-zram.sh"
+        bash "${script_dir}/setup-zram.sh" || warn "zram kurulumu sirasinda hata — reboot sonrasi aktif olacak."
     fi
 
     # zram systemd service

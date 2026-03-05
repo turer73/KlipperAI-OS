@@ -69,6 +69,26 @@ class TestWhitelist:
         assert cm.is_allowed("stepper_x", "position_max") is False
         assert cm.is_allowed("mcu", "serial") is False
 
+    def test_bed_mesh_params_allowed(self):
+        """bed_mesh parametreleri whitelist'te."""
+        cm = ConfigManager("http://localhost:7125")
+        assert cm.is_allowed("bed_mesh", "probe_count")
+        assert cm.is_allowed("bed_mesh", "mesh_min")
+        assert cm.is_allowed("bed_mesh", "algorithm")
+        assert not cm.is_allowed("bed_mesh", "speed")  # speed not whitelisted
+
+    def test_probe_params_allowed(self):
+        """probe parametreleri whitelist'te."""
+        cm = ConfigManager("http://localhost:7125")
+        assert cm.is_allowed("probe", "z_offset")
+        assert cm.is_allowed("probe", "samples")
+        assert not cm.is_allowed("probe", "pin")  # pin is dangerous
+
+    def test_safe_z_home_allowed(self):
+        """safe_z_home parametreleri whitelist'te."""
+        cm = ConfigManager("http://localhost:7125")
+        assert cm.is_allowed("safe_z_home", "home_xy_position")
+
 
 class TestConfigChange:
     def test_creation(self):

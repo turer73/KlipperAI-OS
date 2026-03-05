@@ -333,6 +333,10 @@ class PrintMonitor:
         self._bed_level_enabled = os.environ.get("BED_LEVEL_CHECK", "1").lower() not in ("0", "false", "no", "off")
         self._bed_level_checked = False
 
+        # Auto Recalibrate (opt-in)
+        self._auto_recalibrate = os.environ.get("AUTO_RECALIBRATE", "0").lower() in ("1", "true", "yes", "on")
+        self._last_auto_recal_date = ""  # YYYY-MM-DD — gunde max 1 kez
+
     def start(self):
         """Monitor'u baslat."""
         logger.info("=" * 50)
@@ -808,11 +812,20 @@ class PrintMonitor:
         if mesh_matrix:
             report = self.drift_detector.check_drift(profile, mesh_matrix)
             if report.recommendation == "recalibrate":
-                self.moonraker.send_notification(
-                    f"KOS: Kritik bed level drift ({report.max_point_drift:.2f}mm). "
-                    "Yeniden kalibrasyon onerilir."
-                )
-                logger.warning("Bed Level: drift %.3fmm — recalibrate", report.max_point_drift)
+                if self._auto_recalibrate and self._last_auto_recal_date != time.strftime("%Y-%m-%d"):
+                    logger.warning("Bed Level: drift %.3fmm — otomatik kalibrasyon tetikleniyor", report.max_point_drift)
+                    self.moonraker.send_notification(
+                        f"KOS: Kritik bed level drift ({report.max_point_drift:.2f}mm). "
+                        "Otomatik kalibrasyon baslatiliyor..."
+                    )
+                    self.moonraker.send_gcode("KOS_BED_LEVEL_CALIBRATE")
+                    self._last_auto_recal_date = time.strftime("%Y-%m-%d")
+                else:
+                    self.moonraker.send_notification(
+                        f"KOS: Kritik bed level drift ({report.max_point_drift:.2f}mm). "
+                        "Yeniden kalibrasyon onerilir."
+                    )
+                    logger.warning("Bed Level: drift %.3fmm — recalibrate", report.max_point_drift)
             elif report.recommendation == "check_screws":
                 self.moonraker.send_notification(
                     f"KOS: Bed level drift algilandi ({report.max_point_drift:.2f}mm). "
@@ -848,6 +861,15 @@ class PrintMonitor:
                     "Bed Level trend: %s (%.4f mm/gun)",
                     trend.trend_direction, trend.avg_drift_per_day,
                 )
+                # Otomatik kalibrasyon (idle ise)
+                if self._auto_recalibrate and self._last_auto_recal_date != time.strftime("%Y-%m-%d"):
+                    if not self.moonraker.is_printing():
+                        logger.info("Bed Level: post-print otomatik kalibrasyon tetikleniyor")
+                        self.moonraker.send_notification(
+                            "KOS: Bed level trend kotulesiyor. Otomatik kalibrasyon baslatiliyor..."
+                        )
+                        self.moonraker.send_gcode("KOS_BED_LEVEL_CALIBRATE")
+                        self._last_auto_recal_date = time.strftime("%Y-%m-%d")
 
     @property
     def stats(self) -> dict:

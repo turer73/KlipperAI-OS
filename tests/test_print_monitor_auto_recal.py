@@ -81,6 +81,29 @@ class TestPrePrintAutoRecalibrate:
         # Date should be updated
         assert monitor._last_auto_recal_date == time.strftime("%Y-%m-%d")
 
+    def test_pre_print_daily_limit_prevents_recalibrate(self):
+        """drift=recalibrate + AUTO_RECALIBRATE=True + already recal today -> no gcode."""
+        monitor = _make_monitor(auto_recalibrate=True)
+        monitor._last_auto_recal_date = time.strftime("%Y-%m-%d")  # already done today
+
+        monitor.moonraker.get_bed_mesh.return_value = {
+            "profile_name": "default",
+            "mesh_matrix": [[0.15, 0.12], [0.11, 0.14]],
+        }
+        monitor.drift_detector.check_drift.return_value = DriftReport(
+            max_point_drift=0.15,
+            mean_drift=0.13,
+            recommendation="recalibrate",
+        )
+
+        monitor._bed_level_pre_print_check()
+
+        # Should NOT send gcode — daily limit hit
+        monitor.moonraker.send_gcode.assert_not_called()
+        # Should still send recommendation notification (falls through to else)
+        monitor.moonraker.send_notification.assert_called_once()
+        assert "onerilir" in monitor.moonraker.send_notification.call_args[0][0]
+
     def test_pre_print_no_recalibrate_when_disabled(self):
         """drift=recalibrate + AUTO_RECALIBRATE=False -> only notification, no gcode."""
         monitor = _make_monitor(auto_recalibrate=False)

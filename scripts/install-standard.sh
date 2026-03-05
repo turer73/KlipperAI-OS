@@ -63,13 +63,14 @@ install_light_base() {
 install_klipperscreen() {
     log "KlipperScreen kuruluyor..."
 
-    # X11 ve pygame bagimliliklari + video suruculeri
+    # X11, video suruculeri ve PyGObject derleme bagimliliklari
     apt-get install -y --no-install-recommends \
         xserver-xorg xinit x11-xserver-utils \
         xserver-xorg-video-fbdev xserver-xorg-video-vesa \
         python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
-        libopenjp2-7 libcairo2-dev \
-        fonts-freefont-ttf \
+        libgirepository1.0-dev libcairo2-dev pkg-config \
+        gcc python3-dev cmake \
+        libopenjp2-7 fonts-freefont-ttf \
         xinput
     # Intel/AMD/NVIDIA icin ek surucu (varsa yukle, yoksa atla)
     apt-get install -y --no-install-recommends xserver-xorg-video-intel 2>/dev/null || true

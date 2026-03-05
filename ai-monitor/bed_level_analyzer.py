@@ -237,13 +237,194 @@ class MeshAnalyzer:
         return adjustments
 
 
-# --- Placeholder stubs for Task 2 imports ---
+# --- ProfileManager ---
 
 class ProfileManager:
-    """Placeholder — will be implemented in Task 2."""
-    pass
+    """Mesh profil yonetimi — filament+yuzey combo ile kayit/yukleme."""
 
+    def __init__(self, state_path: Path = STATE_PATH):
+        self.state_path = state_path
+        self._profiles: Dict[str, MeshSnapshot] = {}
+        self._load_state()
+
+    def _load_state(self) -> None:
+        """Kaydedilmis profilleri yukle."""
+        if self.state_path.exists():
+            try:
+                data = json.loads(self.state_path.read_text())
+                for name, snap_dict in data.get("profiles", {}).items():
+                    self._profiles[name] = MeshSnapshot(**snap_dict)
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("Profil dosyasi okunamadi: %s", self.state_path)
+
+    def _save_state(self) -> None:
+        """Profilleri diske kaydet."""
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {"profiles": {n: asdict(s) for n, s in self._profiles.items()}}
+        self.state_path.write_text(json.dumps(data, indent=2))
+
+    def save_profile(
+        self,
+        name: str,
+        mesh: List[List[float]],
+        bed_temp: float = 0.0,
+        ambient_temp: Optional[float] = None,
+    ) -> None:
+        """Mesh'i profil olarak kaydet."""
+        flat = [v for row in mesh for v in row]
+        mesh_mean = sum(flat) / len(flat) if flat else 0.0
+        variance = sum((v - mesh_mean) ** 2 for v in flat) / len(flat) if flat else 0.0
+
+        self._profiles[name] = MeshSnapshot(
+            timestamp=time.time(),
+            profile_name=name,
+            mesh_matrix=mesh,
+            bed_temp=bed_temp,
+            ambient_temp=ambient_temp,
+            mesh_range=(max(flat) - min(flat)) if flat else 0.0,
+            mesh_mean=mesh_mean,
+            mesh_std_dev=math.sqrt(variance),
+        )
+        self._save_state()
+        logger.info("Profil kaydedildi: %s (range=%.3f)", name, self._profiles[name].mesh_range)
+
+    def load_profile(self, name: str) -> Optional[MeshSnapshot]:
+        """Profili yukle."""
+        return self._profiles.get(name)
+
+    def auto_select_profile(self, surface: str, filament: str) -> Optional[str]:
+        """Filament+yuzey combo ile profil sec."""
+        key = f"{surface}_{filament}"
+        if key in self._profiles:
+            return key
+        return None
+
+    def compare_profiles(self, name_a: str, name_b: str) -> Optional[Dict]:
+        """Iki profil arasi delta hesapla."""
+        a = self._profiles.get(name_a)
+        b = self._profiles.get(name_b)
+        if not a or not b:
+            return None
+
+        diffs = []
+        for row_a, row_b in zip(a.mesh_matrix, b.mesh_matrix):
+            for va, vb in zip(row_a, row_b):
+                diffs.append(abs(va - vb))
+
+        if not diffs:
+            return None
+
+        return {
+            "max_diff": max(diffs),
+            "mean_diff": sum(diffs) / len(diffs),
+            "profiles": [name_a, name_b],
+        }
+
+    def list_profiles(self) -> List[str]:
+        """Kayitli profil isimlerini dondur."""
+        return list(self._profiles.keys())
+
+
+# --- DriftDetector ---
 
 class DriftDetector:
-    """Placeholder — will be implemented in Task 2."""
-    pass
+    """Mesh drift izleme ve yeniden kalibrasyon onerisi."""
+
+    def __init__(
+        self,
+        state_path: Path = STATE_PATH,
+        drift_threshold: float = DRIFT_THRESHOLD_MM,
+        recalibrate_threshold: float = RECALIBRATE_THRESHOLD_MM,
+    ):
+        self.state_path = state_path
+        self.drift_threshold = drift_threshold
+        self.recalibrate_threshold = recalibrate_threshold
+        self._snapshots: Dict[str, List[MeshSnapshot]] = {}
+        self._load_state()
+
+    def _load_state(self) -> None:
+        if self.state_path.exists():
+            try:
+                data = json.loads(self.state_path.read_text())
+                for name, snaps in data.get("drift_snapshots", {}).items():
+                    self._snapshots[name] = [MeshSnapshot(**s) for s in snaps]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    def _save_state(self) -> None:
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "drift_snapshots": {
+                n: [asdict(s) for s in snaps[-MAX_SNAPSHOTS:]]
+                for n, snaps in self._snapshots.items()
+            }
+        }
+        self.state_path.write_text(json.dumps(data, indent=2))
+
+    def add_snapshot(
+        self, profile: str, mesh: List[List[float]], bed_temp: float = 0.0,
+    ) -> None:
+        """Yeni mesh snapshot ekle."""
+        flat = [v for row in mesh for v in row]
+        mesh_mean = sum(flat) / len(flat) if flat else 0.0
+        variance = sum((v - mesh_mean) ** 2 for v in flat) / len(flat) if flat else 0.0
+
+        snap = MeshSnapshot(
+            timestamp=time.time(),
+            profile_name=profile,
+            mesh_matrix=mesh,
+            bed_temp=bed_temp,
+            mesh_range=(max(flat) - min(flat)) if flat else 0.0,
+            mesh_mean=mesh_mean,
+            mesh_std_dev=math.sqrt(variance),
+        )
+        if profile not in self._snapshots:
+            self._snapshots[profile] = []
+        self._snapshots[profile].append(snap)
+        self._save_state()
+
+    def check_drift(self, profile: str, current_mesh: List[List[float]]) -> DriftReport:
+        """Mevcut mesh ile referans arasindaki drift'i kontrol et."""
+        snaps = self._snapshots.get(profile, [])
+        if not snaps:
+            return DriftReport(recommendation="ok")
+
+        ref = snaps[0]
+        diffs = []
+        for row_cur, row_ref in zip(current_mesh, ref.mesh_matrix):
+            for vc, vr in zip(row_cur, row_ref):
+                diffs.append(abs(vc - vr))
+
+        if not diffs:
+            return DriftReport(recommendation="ok")
+
+        max_drift = max(diffs)
+        mean_drift = sum(diffs) / len(diffs)
+        cur_flat = [v for row in current_mesh for v in row]
+        cur_range = (max(cur_flat) - min(cur_flat)) if cur_flat else 0.0
+        days = (time.time() - ref.timestamp) / 86400
+
+        if max_drift >= self.recalibrate_threshold:
+            rec = "recalibrate"
+            direction = "worsening"
+        elif max_drift >= self.drift_threshold:
+            rec = "check_screws"
+            direction = "worsening"
+        else:
+            rec = "ok"
+            direction = "stable"
+
+        return DriftReport(
+            current_range=cur_range,
+            reference_range=ref.mesh_range,
+            max_point_drift=max_drift,
+            mean_drift=mean_drift,
+            drift_direction=direction,
+            recommendation=rec,
+            days_since_calibration=days,
+        )
+
+    def should_recalibrate(self, profile: str, current_mesh: List[List[float]]) -> bool:
+        """Yeniden kalibrasyon gerekli mi?"""
+        report = self.check_drift(profile, current_mesh)
+        return report.recommendation == "recalibrate"

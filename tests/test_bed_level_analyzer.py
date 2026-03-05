@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'ai-monitor'))
 
 import pytest
 import math
+from pathlib import Path
 
 from bed_level_analyzer import (
     MeshReport, ScrewAdjustment, MeshSnapshot, DriftReport,
@@ -93,3 +94,94 @@ class TestMeshAnalyzer:
         assert report.mesh_max == pytest.approx(0.4)
         assert report.mesh_mean == pytest.approx(0.25)
         assert report.std_dev > 0
+
+
+class TestProfileManager:
+    """ProfileManager: mesh profil yonetimi — filament+yuzey combo."""
+
+    def setup_method(self):
+        self.pm = ProfileManager(state_path=Path("/tmp/kos_test_profiles.json"))
+        # Temiz baslat
+        if self.pm.state_path.exists():
+            self.pm.state_path.unlink()
+
+    def test_save_and_load_profile(self):
+        """Profil kaydet ve geri yukle."""
+        mesh = [[0.1, 0.2], [0.3, 0.4]]
+        self.pm.save_profile("pei_pla", mesh, bed_temp=60.0)
+        loaded = self.pm.load_profile("pei_pla")
+        assert loaded is not None
+        assert loaded.profile_name == "pei_pla"
+        assert loaded.mesh_matrix == mesh
+        assert loaded.bed_temp == 60.0
+
+    def test_auto_select_profile(self):
+        """Filament+yuzey combo ile profil sec."""
+        mesh = [[0.1, 0.2], [0.3, 0.4]]
+        self.pm.save_profile("pei_pla", mesh, bed_temp=60.0)
+        self.pm.save_profile("glass_petg", mesh, bed_temp=80.0)
+        name = self.pm.auto_select_profile(surface="pei", filament="pla")
+        assert name == "pei_pla"
+
+    def test_auto_select_missing_returns_none(self):
+        """Olmayan combo None dondurur."""
+        name = self.pm.auto_select_profile(surface="steel", filament="tpu")
+        assert name is None
+
+    def test_compare_profiles(self):
+        """Iki profil arasi delta hesapla."""
+        mesh_a = [[0.1, 0.2], [0.3, 0.4]]
+        mesh_b = [[0.15, 0.25], [0.35, 0.45]]
+        self.pm.save_profile("a", mesh_a, bed_temp=60.0)
+        self.pm.save_profile("b", mesh_b, bed_temp=60.0)
+        delta = self.pm.compare_profiles("a", "b")
+        assert delta is not None
+        assert delta["max_diff"] == pytest.approx(0.05, abs=0.01)
+        assert delta["mean_diff"] == pytest.approx(0.05, abs=0.01)
+
+    def test_list_profiles(self):
+        """Kayitli profilleri listele."""
+        mesh = [[0.0]]
+        self.pm.save_profile("pei_pla", mesh, bed_temp=60.0)
+        self.pm.save_profile("glass_abs", mesh, bed_temp=100.0)
+        names = self.pm.list_profiles()
+        assert "pei_pla" in names
+        assert "glass_abs" in names
+
+
+class TestDriftDetector:
+    """DriftDetector: mesh drift izleme ve yeniden kalibrasyon onerisi."""
+
+    def setup_method(self):
+        self.dd = DriftDetector(state_path=Path("/tmp/kos_test_drift.json"))
+        if self.dd.state_path.exists():
+            self.dd.state_path.unlink()
+
+    def test_no_drift_on_first_snapshot(self):
+        """Ilk snapshot — drift yok."""
+        mesh = [[0.0, 0.0], [0.0, 0.0]]
+        report = self.dd.check_drift("default", mesh)
+        assert report.recommendation == "ok"
+
+    def test_drift_detected(self):
+        """Ikinci snapshot farkli — drift algilanir."""
+        mesh_ref = [[0.0, 0.0], [0.0, 0.0]]
+        mesh_new = [[0.08, 0.06], [0.07, 0.09]]
+        self.dd.add_snapshot("default", mesh_ref, bed_temp=60.0)
+        report = self.dd.check_drift("default", mesh_new)
+        assert report.max_point_drift >= 0.06
+        assert report.recommendation in ("recalibrate", "check_screws")
+
+    def test_should_recalibrate_threshold(self):
+        """Esik asimi kontrolu."""
+        mesh_ref = [[0.0, 0.0], [0.0, 0.0]]
+        mesh_bad = [[0.15, 0.12], [0.11, 0.14]]
+        self.dd.add_snapshot("default", mesh_ref, bed_temp=60.0)
+        assert self.dd.should_recalibrate("default", mesh_bad)
+
+    def test_stable_mesh_no_recalibrate(self):
+        """Stabil mesh — yeniden kalibrasyon gerekmez."""
+        mesh_ref = [[0.05, 0.05], [0.05, 0.05]]
+        mesh_same = [[0.05, 0.06], [0.05, 0.05]]
+        self.dd.add_snapshot("default", mesh_ref, bed_temp=60.0)
+        assert not self.dd.should_recalibrate("default", mesh_same)

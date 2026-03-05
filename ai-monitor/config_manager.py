@@ -46,6 +46,18 @@ ALLOWED_PARAMS: Dict[str, List[str]] = {
         "ai_spaghetti_threshold", "ai_no_extrusion_threshold",
         "warning_escalation_count",
     ],
+    "bed_mesh": [
+        "mesh_min", "mesh_max", "probe_count", "algorithm",
+        "bicubic_tension", "mesh_pps", "fade_start", "fade_end",
+        "adaptive_margin", "zero_reference_position",
+    ],
+    "probe": [
+        "z_offset", "samples", "samples_tolerance",
+        "speed", "lift_speed",
+    ],
+    "safe_z_home": [
+        "home_xy_position",
+    ],
 }
 
 

@@ -258,10 +258,16 @@ class ProfileManager:
                 logger.warning("Profil dosyasi okunamadi: %s", self.state_path)
 
     def _save_state(self) -> None:
-        """Profilleri diske kaydet."""
+        """Profilleri diske kaydet (mevcut veriyi koruyarak)."""
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {"profiles": {n: asdict(s) for n, s in self._profiles.items()}}
-        self.state_path.write_text(json.dumps(data, indent=2))
+        existing = {}
+        if self.state_path.exists():
+            try:
+                existing = json.loads(self.state_path.read_text())
+            except (json.JSONDecodeError, TypeError):
+                pass
+        existing["profiles"] = {n: asdict(s) for n, s in self._profiles.items()}
+        self.state_path.write_text(json.dumps(existing, indent=2))
 
     def save_profile(
         self,
@@ -353,13 +359,17 @@ class DriftDetector:
 
     def _save_state(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        data = {
-            "drift_snapshots": {
-                n: [asdict(s) for s in snaps[-MAX_SNAPSHOTS:]]
-                for n, snaps in self._snapshots.items()
-            }
+        existing = {}
+        if self.state_path.exists():
+            try:
+                existing = json.loads(self.state_path.read_text())
+            except (json.JSONDecodeError, TypeError):
+                pass
+        existing["drift_snapshots"] = {
+            n: [asdict(s) for s in snaps[-MAX_SNAPSHOTS:]]
+            for n, snaps in self._snapshots.items()
         }
-        self.state_path.write_text(json.dumps(data, indent=2))
+        self.state_path.write_text(json.dumps(existing, indent=2))
 
     def add_snapshot(
         self, profile: str, mesh: List[List[float]], bed_temp: float = 0.0,

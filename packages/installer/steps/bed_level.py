@@ -20,6 +20,18 @@ KNOWN_SCREW_POSITIONS = {
         ("204.5, 207", "Sag Arka"),
         ("204.5, 37", "Sag On"),
     ],
+    "voron": [
+        ("50, 25", "Sol On"),
+        ("50, 275", "Sol Arka"),
+        ("300, 275", "Sag Arka"),
+        ("300, 25", "Sag On"),
+    ],
+    "generic": [
+        ("30, 30", "Sol On"),
+        ("30, 200", "Sol Arka"),
+        ("200, 200", "Sag Arka"),
+        ("200, 30", "Sag On"),
+    ],
 }
 
 PROBE_TYPES = [
@@ -154,18 +166,16 @@ class BedLevelStep:
         sections = []
 
         # bed_screws (her zaman — probsuz da kullanilabilir)
-        sections.append(
-            "# --- Manuel Yatak Hizalama ---\n"
-            "[bed_screws]\n"
-            "screw1: 30.5, 37\n"
-            "screw1_name: Sol On\n"
-            "screw2: 30.5, 207\n"
-            "screw2_name: Sol Arka\n"
-            "screw3: 204.5, 207\n"
-            "screw3_name: Sag Arka\n"
-            "screw4: 204.5, 37\n"
-            "screw4_name: Sag On\n"
-        )
+        # Yazici modeline gore vida pozisyonlari
+        model = ""
+        if self.hw_info and isinstance(self.hw_info, dict):
+            model = self.hw_info.get("model", "").lower()
+        screws = KNOWN_SCREW_POSITIONS.get(model, KNOWN_SCREW_POSITIONS["generic"])
+
+        screw_lines = "# --- Manuel Yatak Hizalama ---\n[bed_screws]\n"
+        for i, (pos, name) in enumerate(screws, 1):
+            screw_lines += f"screw{i}: {pos}\nscrew{i}_name: {name}\n"
+        sections.append(screw_lines)
 
         if self.probe_type != "none":
             # probe section

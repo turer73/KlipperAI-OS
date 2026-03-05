@@ -25,6 +25,8 @@ NC='\033[0m'
 
 # --- Parametreler ---
 PROFILE=""
+PRINTER_TEMPLATE=""
+KLIPPER_PASSWORD=""
 NON_INTERACTIVE=false
 NO_MODELS=false
 
@@ -55,6 +57,7 @@ parse_args() {
             --light)      PROFILE="LIGHT" ;;
             --standard)   PROFILE="STANDARD" ;;
             --full)       PROFILE="FULL" ;;
+            --printer=*)  PRINTER_TEMPLATE="${1#--printer=}" ;;
             --non-interactive) NON_INTERACTIVE=true ;;
             --no-models)  NO_MODELS=true ;;
             -h|--help)    show_help; exit 0 ;;
@@ -73,6 +76,7 @@ show_help() {
     echo "  --light           LIGHT profil kur (Klipper + Moonraker + Mainsail)"
     echo "  --standard        STANDARD profil kur (+ KlipperScreen + Crowsnest + AI)"
     echo "  --full            FULL profil kur (+ Multi-printer + Timelapse)"
+    echo "  --printer=MODEL   Yazici sablonu (ender3, ender3v2, voron, generic)"
     echo "  --non-interactive Soru sormadan kur"
     echo "  --no-models       AI modellerini indirme"
     echo "  -h, --help        Bu yardim mesajini goster"
@@ -195,6 +199,65 @@ select_profile() {
     done
 
     echo -e "${GREEN}Secilen profil: ${BOLD}${PROFILE}${NC}"
+}
+
+# --- Yazici Sablonu Secimi ---
+select_printer_template() {
+    if [ -n "$PRINTER_TEMPLATE" ]; then
+        echo -e "${GREEN}Secilen yazici: ${BOLD}${PRINTER_TEMPLATE}${NC}"
+        return
+    fi
+
+    if [ "$NON_INTERACTIVE" = true ]; then
+        PRINTER_TEMPLATE="generic"
+        echo -e "${GREEN}Otomatik yazici: ${BOLD}generic${NC}"
+        return
+    fi
+
+    echo -e "${CYAN}Yazici modelinizi secin:${NC}"
+    echo ""
+    echo -e "  ${BOLD}1) Ender 3${NC}      — Creality Ender 3 (v4.2.2 kart)"
+    echo -e "  ${BOLD}2) Ender 3 V2${NC}   — Creality Ender 3 V2 (v4.2.7 kart)"
+    echo -e "  ${BOLD}3) Voron 2.4${NC}    — Voron CoreXY (BTT Octopus)"
+    echo -e "  ${BOLD}4) Generic${NC}      — Genel ayarlar (sonra duzenlersiniz)"
+    echo ""
+
+    while true; do
+        read -rp "Seciminiz [1/2/3/4]: " choice
+        case "$choice" in
+            1) PRINTER_TEMPLATE="ender3"; break ;;
+            2) PRINTER_TEMPLATE="ender3v2"; break ;;
+            3) PRINTER_TEMPLATE="voron"; break ;;
+            4) PRINTER_TEMPLATE="generic"; break ;;
+            *) echo "Gecersiz secim. 1, 2, 3 veya 4 girin." ;;
+        esac
+    done
+
+    echo -e "${GREEN}Secilen yazici: ${BOLD}${PRINTER_TEMPLATE}${NC}"
+}
+
+# --- Klipper Kullanici Sifresi ---
+setup_klipper_password() {
+    if [ "$NON_INTERACTIVE" = true ]; then
+        return
+    fi
+
+    echo ""
+    echo -e "${CYAN}Klipper kullanici sifresi belirleyin:${NC}"
+    echo "(SSH ile baglanirken kullanacaksiniz)"
+    echo ""
+
+    while true; do
+        read -rsp "Sifre: " pass1; echo
+        read -rsp "Tekrar: " pass2; echo
+        if [ "$pass1" = "$pass2" ] && [ -n "$pass1" ]; then
+            KLIPPER_PASSWORD="$pass1"
+            break
+        fi
+        echo -e "${YELLOW}Sifreler eslesmiyor veya bos. Tekrar deneyin.${NC}"
+    done
+
+    echo -e "${GREEN}Sifre belirlendi.${NC}"
 }
 
 # --- Proje Dosyalarini Kopyala ---
@@ -343,6 +406,10 @@ main() {
     check_system
     detect_hardware
     select_profile
+    select_printer_template
+    setup_klipper_password
+    export PRINTER_TEMPLATE
+    export KLIPPER_PASSWORD
     install_project_files
     scan_mcu
     run_profile_installer

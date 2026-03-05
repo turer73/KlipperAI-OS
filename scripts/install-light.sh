@@ -36,6 +36,12 @@ create_klipper_user() {
 
     # dialout grubu (seri port erisimi)
     usermod -aG dialout "$KLIPPER_USER" 2>/dev/null || true
+
+    # Sifre ayarla (install-klipper-os.sh'den export edilir)
+    if [ -n "${KLIPPER_PASSWORD:-}" ]; then
+        echo "${KLIPPER_USER}:${KLIPPER_PASSWORD}" | chpasswd
+        log "Kullanici sifresi ayarlandi."
+    fi
 }
 
 # --- Sistem Bagimliklarini Kur ---
@@ -187,8 +193,12 @@ install_klipper_macros() {
     if [ -d "${kos_dir}/config/klipper" ]; then
         cp "${kos_dir}/config/klipper/kos_plr.cfg" "${config_dir}/" 2>/dev/null || true
         cp "${kos_dir}/config/klipper/kos_flowguard.cfg" "${config_dir}/" 2>/dev/null || true
+        cp "${kos_dir}/config/klipper/kos_flowguard_lowram.cfg" "${config_dir}/" 2>/dev/null || true
         cp "${kos_dir}/config/klipper/kos_rewind.cfg" "${config_dir}/" 2>/dev/null || true
-        log "KlipperOS-AI makrolari kopyalandi."
+        cp "${kos_dir}/config/klipper/kos_bed_level.cfg" "${config_dir}/" 2>/dev/null || true
+        cp "${kos_dir}/config/klipper/kos_auto_calibrate.cfg" "${config_dir}/" 2>/dev/null || true
+        cp "${kos_dir}/config/klipper/kos_smart_print.cfg" "${config_dir}/" 2>/dev/null || true
+        log "KlipperOS-AI makrolari kopyalandi (7 config dosyasi)."
     fi
 
     chown -R "$KLIPPER_USER:$KLIPPER_USER" "${config_dir}"
@@ -271,9 +281,19 @@ setup_printer_data() {
     mkdir -p "${data_dir}/gcodes"
     mkdir -p "${data_dir}/database"
 
-    # Varsayilan printer.cfg
+    # Printer config — template-bazli veya fallback inline
     if [ ! -f "${data_dir}/config/printer.cfg" ]; then
-        cat > "${data_dir}/config/printer.cfg" << 'PRINTERCFG'
+        local template="${PRINTER_TEMPLATE:-generic}"
+        local kos_dir
+        kos_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+        local tpl_file="${kos_dir}/config/klipper/${template}.cfg"
+
+        if [ -f "$tpl_file" ]; then
+            cp "$tpl_file" "${data_dir}/config/printer.cfg"
+            log "Yazici sablonu kopyalandi: ${template}.cfg"
+        else
+            warn "Sablon bulunamadi: ${tpl_file} — varsayilan config kullaniliyor."
+            cat > "${data_dir}/config/printer.cfg" << 'PRINTERCFG'
 # KlipperOS-AI — Varsayilan Printer Config
 # Bu dosyayi yazici kartiniza gore duzenleyin.
 #
@@ -325,6 +345,7 @@ gcode:
     M84
     BASE_CANCEL
 PRINTERCFG
+        fi
     fi
 
     # Moonraker config

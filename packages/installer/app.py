@@ -15,6 +15,7 @@ from .steps.disk import DiskStep, MOUNT_POINT
 from .steps.user_setup import UserSetupStep
 from .steps.install import InstallStep
 from .steps.services import ServicesStep
+from .steps.bed_level import BedLevelStep
 from .steps.bootloader import BootloaderStep
 from .steps.complete import CompleteStep
 
@@ -77,6 +78,9 @@ class InstallerApp:
 
         # 8. Servis yapilandirma
         ServicesStep(tui=self.tui).run()
+
+        # 8.5 Bed level yapilandirma
+        BedLevelStep(tui=self.tui, hw_info=hw_info).run()
 
         # 9. Bootloader kurulumu (sadece disk kurulumda)
         if get_target():

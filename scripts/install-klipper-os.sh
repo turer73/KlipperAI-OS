@@ -396,6 +396,18 @@ show_summary() {
     echo -e "${GREEN}║     sudo systemctl restart klipper moonraker      ║${NC}"
     echo -e "${GREEN}║                                                   ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════╝${NC}"
+
+    # Yeniden baslatma onerisi
+    echo ""
+    if [ "$NON_INTERACTIVE" = true ]; then
+        echo -e "${YELLOW}Sistem yeniden baslatilmasi oneriliyor: sudo reboot${NC}"
+    else
+        read -rp "Sistemi simdi yeniden baslatmak ister misiniz? [E/h]: " reboot_choice
+        case "$reboot_choice" in
+            [Hh]*) echo -e "${YELLOW}Yeniden baslatmayi atliyorsunuz. Manuel: sudo reboot${NC}" ;;
+            *)     echo "Sistem yeniden baslatiliyor..."; sleep 2; reboot ;;
+        esac
+    fi
 }
 
 # --- Ana ---

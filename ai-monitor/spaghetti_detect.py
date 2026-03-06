@@ -64,11 +64,18 @@ class SpaghettiDetector:
             self._interpreter = tflite.Interpreter(model_path=self.model_path)
         except ImportError:
             try:
-                import tensorflow as tf
-                self._interpreter = tf.lite.Interpreter(model_path=self.model_path)
+                from ai_edge_litert.interpreter import Interpreter
+                self._interpreter = Interpreter(model_path=self.model_path)
             except ImportError:
-                logger.error("TFLite runtime bulunamadi. Kurun: pip install tflite-runtime")
-                return False
+                try:
+                    import tensorflow as tf
+                    self._interpreter = tf.lite.Interpreter(model_path=self.model_path)
+                except ImportError:
+                    logger.error(
+                        "TFLite runtime bulunamadi. "
+                        "Kurun: pip install tflite-runtime veya pip install ai-edge-litert"
+                    )
+                    return False
 
         self._interpreter.allocate_tensors()
         self._input_details = self._interpreter.get_input_details()

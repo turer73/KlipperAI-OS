@@ -1,12 +1,16 @@
+# DEPRECATED: Bu servis kos-oobe.service ile degistirildi.
+# kos-oobe.service: Type=simple daemon, KlipperScreen + CLI IPC destekli.
+# Bu dosya geriye uyumluluk icin saklanmistir.
+
 [Unit]
-Description=KlipperOS-AI First Boot Wizard
-# NM'nin CALISMASI yeterli — online olmasini beklemeye gerek yok
-# (ag yapilandirmasini installer icinde kendimiz yapiyoruz)
+Description=KlipperOS-AI First Boot Wizard (DEPRECATED - use kos-oobe.service)
 After=NetworkManager.service systemd-logind.service
 Wants=NetworkManager.service
 Before=getty@tty1.service
 Conflicts=getty@tty1.service
 ConditionPathExists=/opt/klipperos-ai/.first-boot
+# Yeni OOBE servisi varsa bu calismaz:
+ConditionPathExists=!/etc/systemd/system/kos-oobe.service
 
 [Service]
 Type=oneshot

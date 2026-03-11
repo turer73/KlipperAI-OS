@@ -1,0 +1,36 @@
+[Unit]
+Description=KlipperOS-AI Chat Server (RAG + Ollama)
+Documentation=https://github.com/klipperos-ai
+After=network.target ollama.service moonraker.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+User=klipperos
+Group=klipperos
+WorkingDirectory=/opt/klipperos-ai/ai-chat
+ExecStart=/opt/klipperos-ai/ai-venv/bin/python3 server.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kos-ai-chat
+
+# Ortam degiskenleri
+Environment=PYTHONUNBUFFERED=1
+Environment=HF_HUB_OFFLINE=1
+Environment=TRANSFORMERS_OFFLINE=1
+Environment=AI_CHAT_HOST=127.0.0.1
+Environment=AI_CHAT_PORT=8085
+Environment=OLLAMA_URL=http://127.0.0.1:11434
+Environment=MOONRAKER_URL=http://127.0.0.1:7125
+Environment=AI_MODEL=qwen3:1.7b
+
+# Guvenlik
+ProtectSystem=strict
+ReadWritePaths=/opt/klipperos-ai/ai-chat/data
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

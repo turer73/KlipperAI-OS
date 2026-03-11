@@ -1,0 +1,69 @@
+# ═══════════════════════════════════════════════
+# KlipperOS-AI  —  FastAPI Backend
+# Multi-stage build: deps → runtime
+# ═══════════════════════════════════════════════
+
+# ── Stage 1: Python dependency builder ────────
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+
+# Sistem bagimliklar (numpy/onnx derleme icin)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ && \
+    rm -rf /var/lib/apt/lists/*
+
+# pyproject.toml + pip install (cache dostu)
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir --prefix=/install ".[api,ai]"
+
+
+# ── Stage 2: Production runtime ──────────────
+FROM python:3.11-slim AS runtime
+
+LABEL maintainer="Zaman Huseyinli"
+LABEL description="KlipperOS-AI FastAPI Backend"
+LABEL version="3.0.0"
+
+WORKDIR /app
+
+# Sistem kutuphaneleri (onnxruntime libgomp gerektirir)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Builder'dan Python paketlerini kopyala
+COPY --from=builder /install /usr/local
+
+# Uygulama kodunu kopyala
+COPY pyproject.toml ./
+COPY packages/ ./packages/
+COPY ai-monitor/ ./ai-monitor/
+COPY tools/ ./tools/
+
+# data/ dizini (volume mount ile doldurulur)
+RUN mkdir -p ./data
+
+# Uygulamayi editable modda kur (import path'leri icin)
+RUN pip install --no-cache-dir --no-deps -e .
+
+# Veri dizinleri
+RUN mkdir -p /var/lib/klipperos-ai /etc/klipperos-ai
+
+# Non-root kullanici
+RUN useradd -r -s /bin/false -m kos
+RUN chown -R kos:kos /var/lib/klipperos-ai /etc/klipperos-ai
+USER kos
+
+# Ortam degiskenleri
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    KOS_MOONRAKER_URL=http://host.docker.internal:7125 \
+    KOS_DB_PATH=/var/lib/klipperos-ai/kos.db
+
+EXPOSE 8470
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8470/api/v1/health')" || exit 1
+
+CMD ["uvicorn", "packages.api.main:app", "--host", "0.0.0.0", "--port", "8470"]

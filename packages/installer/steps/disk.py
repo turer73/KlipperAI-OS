@@ -12,10 +12,14 @@ logger = get_logger()
 
 MOUNT_POINT = "/mnt/target"
 SQUASHFS_PATHS = [
-    "/run/live/medium/live/filesystem.squashfs",   # Standard live-boot
-    "/run/live/rootfs/filesystem.squashfs",         # Some live-boot versions
-    "/cdrom/live/filesystem.squashfs",              # Legacy Debian live
-    "/lib/live/mount/medium/live/filesystem.squashfs",  # Older live-boot
+    # After switch_root, live-boot rbind /run/live → /lib/live/mount
+    "/lib/live/mount/medium/live/filesystem.squashfs",
+    # Some live-boot versions keep /run/live accessible
+    "/run/live/medium/live/filesystem.squashfs",
+    # Direct CDROM symlink (some distros)
+    "/cdrom/live/filesystem.squashfs",
+    # Manual CDROM mount fallback (we create this)
+    "/mnt/cdrom/live/filesystem.squashfs",
 ]
 
 
@@ -107,6 +111,7 @@ class DiskStep:
             self.tui.msgbox("Hata", "Chroot bind mount basarisiz!")
             return False
         self._copy_resolv()
+        self._fix_nsswitch()
 
         # 9. Target'i ayarla — bundan sonra tum I/O diske gider
         set_target(MOUNT_POINT)
@@ -291,33 +296,72 @@ class DiskStep:
 
     @staticmethod
     def _find_squashfs() -> str:
-        """Bilinen yollarda squashfs dosyasini ara, ilk bulunani dondur."""
+        """Bilinen yollarda squashfs dosyasini ara, ilk bulunani dondur.
+
+        3 katmanli arama:
+        1. Bilinen static path'ler (en hizli)
+        2. find komutu ile genis arama (/lib/live, /run/live, /cdrom)
+        3. CDROM mount fallback — /dev/sr0 veya /dev/cdrom'u manuel bagla
+        """
+        # --- Katman 1: static paths ---
         for path in SQUASHFS_PATHS:
             if Path(path).exists():
+                logger.info("Squashfs bulundu (static): %s", path)
                 return path
-        # Fallback: find komutu ile ara
-        ok, out = run_cmd(
-            ["find", "/run/live", "-name", "filesystem.squashfs", "-type", "f"],
-            timeout=10,
-        )
-        if ok and out.strip():
-            return out.strip().splitlines()[0]
+
+        # --- Katman 2: find ile genis arama ---
+        for search_root in ["/lib/live", "/run/live", "/cdrom"]:
+            if Path(search_root).exists():
+                ok, out = run_cmd(
+                    ["find", search_root, "-name", "filesystem.squashfs",
+                     "-type", "f", "-maxdepth", "5"],
+                    timeout=10,
+                )
+                if ok and out.strip():
+                    found = out.strip().splitlines()[0]
+                    logger.info("Squashfs bulundu (find %s): %s", search_root, found)
+                    return found
+
+        # --- Katman 3: CDROM'u manuel mount et ---
+        logger.warning("Squashfs bulunamadi, CDROM mount deneniyor...")
+        cdrom_dev = ""
+        for dev in ["/dev/sr0", "/dev/cdrom"]:
+            if Path(dev).exists():
+                cdrom_dev = dev
+                break
+        if not cdrom_dev:
+            # blkid ile CD-ROM bul
+            ok, out = run_cmd(["blkid", "-t", "TYPE=iso9660", "-o", "device"])
+            if ok and out.strip():
+                cdrom_dev = out.strip().splitlines()[0]
+
+        if cdrom_dev:
+            mnt = "/mnt/cdrom"
+            run_cmd(["mkdir", "-p", mnt])
+            ok, out = run_cmd(["mount", "-o", "ro", cdrom_dev, mnt])
+            if ok:
+                sqfs = f"{mnt}/live/filesystem.squashfs"
+                if Path(sqfs).exists():
+                    logger.info("Squashfs bulundu (CDROM mount): %s", sqfs)
+                    return sqfs
+                logger.warning("CDROM mount edildi ama squashfs yok: %s", mnt)
+                # ls ile bakalim ne var
+                ok2, ls_out = run_cmd(["ls", "-la", mnt])
+                if ok2:
+                    logger.warning("CDROM icerik: %s", ls_out[:300])
+            else:
+                logger.error("CDROM mount basarisiz: %s → %s", cdrom_dev, out)
+
         return ""
 
     def _extract_squashfs(self) -> bool:
         """Live squashfs imajini hedefe ac."""
         sqfs = self._find_squashfs()
         if not sqfs:
-            logger.error("Squashfs bulunamadi! Aranan yollar: %s", SQUASHFS_PATHS)
-            # Debug: list /run/live contents for diagnosis
-            ok, ls_out = run_cmd(["find", "/run/live", "-maxdepth", "3", "-ls"], timeout=5)
-            if ok:
-                logger.error("DEBUG /run/live icerik:\n%s", ls_out[:500])
             self.tui.msgbox(
-                "Hata — Squashfs",
-                "Squashfs dosyasi bulunamadi!\n\n"
-                f"Aranan: {SQUASHFS_PATHS[0]}\n"
-                f"Debug: {ls_out[:200] if ok else 'ls basarisiz'}",
+                "Hata",
+                "Sistem dosyalari bulunamadi!\n\n"
+                "Live ortamda squashfs dosyasi bulunamadi.",
             )
             return False
 
@@ -358,8 +402,67 @@ class DiskStep:
         return all_ok
 
     def _copy_resolv(self) -> None:
-        """DNS ayarlarini hedefe kopyala (chroot icin internet erisimi)."""
-        run_cmd(["cp", "/etc/resolv.conf", f"{MOUNT_POINT}/etc/resolv.conf"])
+        """DNS ayarlarini hedefe kopyala (chroot icin internet erisimi).
+
+        Ubuntu 24.04'te /etc/resolv.conf, /run/systemd/resolve/stub-resolv.conf'a
+        symlink'tir (nameserver 127.0.0.53). Bu stub, chroot'ta calismaz cunku
+        systemd-resolved orada yok. Bind-mount /run yuzunden cp symlink'i takip
+        edip host dosyasini degistirir ama chroot icindeki sonuc ayni kalir.
+
+        Cozum: Symlink'i sil, gercek DNS sunuculariyla duz dosya yaz.
+        """
+        dest = Path(f"{MOUNT_POINT}/etc/resolv.conf")
+
+        # Symlink veya mevcut dosyayi kaldir — duz dosya olacak
+        if dest.is_symlink() or dest.exists():
+            dest.unlink()
+            logger.info("resolv.conf: eski symlink/dosya silindi")
+
+        # systemd-resolved upstream DNS'i dene (gercek DHCP nameserver'lar)
+        upstream = Path("/run/systemd/resolve/resolv.conf")
+        if upstream.exists():
+            try:
+                content = upstream.read_text()
+                if "nameserver" in content and "127.0.0.53" not in content:
+                    dest.write_text(content)
+                    logger.info("resolv.conf: upstream DNS yazildi")
+                    return
+            except OSError:
+                pass
+
+        # Fallback: public DNS
+        logger.info("resolv.conf: fallback DNS yaziliyor (8.8.8.8 + 1.1.1.1)")
+        dest.write_text(
+            "# DNS — KlipperOS-AI installer\n"
+            "nameserver 8.8.8.8\n"
+            "nameserver 1.1.1.1\n"
+        )
+
+    def _fix_nsswitch(self) -> None:
+        """nsswitch.conf'ta resolve modülünü kaldır.
+
+        Ubuntu 24.04 varsayılan:
+          hosts: files resolve [!UNAVAIL=return] dns
+        Chroot'ta systemd-resolved yok → resolve modülü D-Bus bağlantısı
+        deniyor ve zaman aşımına uğruyor. Düz DNS'e düşür:
+          hosts: files dns
+        """
+        nss = Path(f"{MOUNT_POINT}/etc/nsswitch.conf")
+        if not nss.exists():
+            return
+        try:
+            content = nss.read_text()
+            import re as _re
+            new = _re.sub(
+                r"(hosts:\s*).*",
+                r"\1files dns",
+                content,
+            )
+            if new != content:
+                nss.write_text(new)
+                logger.info("nsswitch.conf: hosts → files dns")
+        except OSError as e:
+            logger.warning("nsswitch.conf düzenlenemedi: %s", e)
 
     # ── Temizlik (CompleteStep tarafindan cagirilir) ────────────────
 

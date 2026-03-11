@@ -1,0 +1,1 @@
+klipperos ALL=(ALL) NOPASSWD: /usr/bin/systemctl start kos-bambu-monitor, /usr/bin/systemctl stop kos-bambu-monitor, /usr/bin/systemctl restart kos-bambu-monitor

@@ -1,0 +1,34 @@
+[Unit]
+Description=KlipperOS-AI REST API (FastAPI)
+Documentation=https://github.com/KlipperOS-AI
+After=network.target moonraker.service
+Wants=moonraker.service
+
+[Service]
+Type=exec
+User=klipperos
+Group=klipperos
+WorkingDirectory=/opt/klipperos-ai
+ExecStart=/opt/klipperos-ai/ai-venv/bin/python -m uvicorn packages.api.main:app --host 0.0.0.0 --port 8470 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONPATH=/opt/klipperos-ai
+Environment=KOS_MOONRAKER_URL=http://127.0.0.1:7125
+Environment=KOS_DB_PATH=/var/lib/klipperos-ai/kos.db
+Environment=KOS_API_USER=admin
+Environment=KOS_API_PASS=klipperos
+
+# Kaynak limitleri (SBC uyumlu)
+MemoryMax=256M
+CPUQuota=50%
+
+# Guvenlik
+ProtectSystem=strict
+ReadWritePaths=/var/lib/klipperos-ai /var/log/klipperos-ai /etc/klipperos-ai
+ProtectHome=true
+# NoNewPrivileges kaldirildi — sudo systemctl servis toggle icin gerekli
+# NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,36 @@
+[Unit]
+Description=KlipperOS-AI Print Monitor (Klipper Kamera AI Gozlem)
+After=network.target klipper.service moonraker.service crowsnest.service
+Wants=klipper.service moonraker.service
+
+[Service]
+Type=simple
+User=klipperos
+Group=klipperos
+WorkingDirectory=/opt/klipperos-ai/ai-monitor
+ExecStart=/opt/klipperos-ai/ai-venv/bin/python3 print_monitor.py
+Restart=on-failure
+RestartSec=10
+
+# Environment
+Environment=PYTHONPATH=/opt/klipperos-ai
+Environment=MOONRAKER_URL=http://127.0.0.1:7125
+Environment=CAMERA_URL=http://127.0.0.1:8080/?action=snapshot
+Environment=CHECK_INTERVAL=10
+Environment=FLOWGUARD_ENABLED=1
+Environment=PREDICTIVE_MAINT=1
+Environment=BED_LEVEL_CHECK=1
+Environment=ADAPTIVE_PRINT=0
+Environment=AUTORECOVERY_ENABLED=0
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=30%
+
+# Log
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=klipperos-ai-monitor
+
+[Install]
+WantedBy=multi-user.target

@@ -11,7 +11,7 @@ from typing import Optional, List, Dict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from kos_system_api import KosSystemAPI
+from panels.kos_system_api import KosSystemAPI
 
 logger = logging.getLogger("KOS-MCU")
 
@@ -152,3 +152,22 @@ try:
 
 except ImportError:
     pass
+
+
+# --- KlipperScreen Panel Adapter ---
+from ks_includes.screen_panel import ScreenPanel
+
+class Panel(ScreenPanel):
+    """KlipperScreen adapter for MCUPanel."""
+    def __init__(self, screen, title):
+        super().__init__(screen, title or PANEL_TITLE)
+        try:
+            self._inner = MCUPanel(api=KosSystemAPI())
+            self.content.add(self._inner.build_ui())
+        except Exception as exc:
+            import logging
+            logging.getLogger("KOS").error("Panel init error: %s", exc)
+            err = Gtk.Label(label=f"Panel yukleme hatasi: {exc}")
+            err.set_line_wrap(True)
+            self.content.add(err)
+

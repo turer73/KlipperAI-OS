@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "klipperos-ai"
-version = "2.0.0"
+version = "3.0.0"
 description = "AI-powered Klipper 3D printer Linux distribution tools"
 readme = "README.md"
 license = {text = "GPL-3.0"}
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 authors = [
     {name = "Zaman Huseyinli"},
 ]
@@ -21,6 +21,10 @@ dependencies = [
 
 [project.optional-dependencies]
 ai = [
+    "onnxruntime>=1.16",
+    "opencv-python-headless>=4.5",
+]
+ai-tflite = [
     "tflite-runtime>=2.11",
     "opencv-python-headless>=4.5",
 ]
@@ -37,13 +41,15 @@ api = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
     "python-jose[cryptography]>=3.3",
-    "aiosqlite>=0.19",
-    "sqlalchemy[asyncio]>=2.0",
     "websockets>=12.0",
     "httpx>=0.27",
+    "psutil>=5.9",
+]
+bambu = [
+    "paho-mqtt>=1.6",
 ]
 full = [
-    "klipperos-ai[ai,dashboard,agent,api]",
+    "klipperos-ai[ai,dashboard,agent,api,bambu]",
 ]
 dev = [
     "pytest>=7.0",
@@ -67,12 +73,14 @@ kos-dashboard = "tools.kos_dashboard:main"
 kos-agent = "tools.kos_agent:main"
 kos-api = "packages.api.main:main"
 kos-install = "packages.installer.__main__:main"
+kos-oobe = "tools.kos_oobe:main"
+kos-bambu-monitor = "ai-monitor.multi_printer_monitor:main"
 
 [tool.setuptools.packages.find]
 include = ["tools*", "ai-monitor*", "ks-panels*", "packages*"]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py311"
 line-length = 100
 
 [tool.pytest.ini_options]

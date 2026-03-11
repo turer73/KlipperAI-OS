@@ -18,7 +18,7 @@ start "" "%QEMU%" ^
     -cdrom "%ISO%" ^
     -kernel "%KERNEL%" ^
     -initrd "%INITRD%" ^
-    -append "boot=live components console=ttyS0,115200 locales=tr_TR.UTF-8 keyboard-layouts=tr" ^
+    -append "boot=live components console=ttyS0,115200 locales=tr_TR.UTF-8 keyboard-layouts=tr ip=dhcp" ^
     -drive "file=%DISK%,if=virtio,format=qcow2" ^
     -nic user,model=virtio-net-pci ^
     -serial tcp::5555,server,nowait ^

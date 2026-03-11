@@ -155,6 +155,7 @@ PACKAGES=(
     parted
     dosfstools
     rsync
+    squashfs-tools
 
     # Temel (SSH + DNS)
     openssh-server

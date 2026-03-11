@@ -8,7 +8,7 @@ Auto-refreshes every 2 seconds when GTK panel is active.
 import logging
 from typing import Optional, Dict, List
 
-from kos_system_api import KosSystemAPI
+from panels.kos_system_api import KosSystemAPI
 
 logger = logging.getLogger("KOS-SysInfo")
 
@@ -146,3 +146,22 @@ try:
 
 except ImportError:
     pass  # GTK not available
+
+
+# --- KlipperScreen Panel Adapter ---
+from ks_includes.screen_panel import ScreenPanel
+
+class Panel(ScreenPanel):
+    """KlipperScreen adapter for SysInfoPanel."""
+    def __init__(self, screen, title):
+        super().__init__(screen, title or PANEL_TITLE)
+        try:
+            self._inner = SysInfoPanel(api=KosSystemAPI())
+            self.content.add(self._inner.build_ui())
+        except Exception as exc:
+            import logging
+            logging.getLogger("KOS").error("Panel init error: %s", exc)
+            err = Gtk.Label(label=f"Panel yukleme hatasi: {exc}")
+            err.set_line_wrap(True)
+            self.content.add(err)
+

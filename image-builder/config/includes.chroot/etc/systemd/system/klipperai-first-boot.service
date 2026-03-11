@@ -1,8 +1,15 @@
+# DEPRECATED: Bu servis kos-oobe.service ile degistirildi.
+# Sorun: network-online.target bekliyordu, NM henuz online degildi.
+# Yeni servis: /etc/systemd/system/kos-oobe.service
+# (After=NetworkManager.service, ConditionPathExists=!/etc/klipperos-ai/.oobe-done)
+
 [Unit]
-Description=KlipperAI-OS First Boot Setup Wizard
+Description=KlipperAI-OS First Boot Setup Wizard (DEPRECATED - use kos-oobe.service)
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/opt/klipperos-ai/.first-boot
+# Yeni OOBE servisi varsa bu calismaz:
+ConditionPathExists=!/etc/systemd/system/kos-oobe.service
 
 [Service]
 Type=oneshot

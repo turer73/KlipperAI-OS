@@ -1,0 +1,59 @@
+# ═══════════════════════════════════════════════
+# KlipperOS-AI Docker ignore
+# ═══════════════════════════════════════════════
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.eggs
+dist
+build
+*.egg
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.venv
+venv
+ai-venv
+
+# Node.js
+packages/web/node_modules
+packages/web/.next
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp_*
+nul
+*.tar.gz
+
+# Training data (large)
+training/
+
+# Documentation (not needed in container)
+docs/
+
+# Tests (not needed in production container)
+tests/
+
+# Image builder / QEMU tools
+image-builder/
+tools/qemu-*
+
+# Docker context (avoid recursion)
+docker-compose*.yml
+Dockerfile*

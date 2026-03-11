@@ -1,0 +1,43 @@
+[Unit]
+Description=KlipperOS-AI OOBE (Ilk Acilis Sihirbazi)
+# NetworkManager basladiktan sonra calis — online olmasi gerekmez,
+# WiFi yapilandirmasini wizard icinde kendimiz yapiyoruz.
+After=NetworkManager.service systemd-logind.service
+Wants=NetworkManager.service
+# TTY1'de login prompt engellensin (wizard TTY kullanmaz ama cakisma olmasin)
+Before=getty@tty1.service
+Conflicts=getty@tty1.service
+# OOBE tamamlanmissa bir daha calisma
+ConditionPathExists=!/etc/klipperos-ai/.oobe-done
+
+[Service]
+Type=simple
+ExecStart=/opt/klipperos-ai/ai-venv/bin/python -m tools.kos_oobe run
+WorkingDirectory=/opt/klipperos-ai
+User=root
+Group=root
+# JSON state dosyalari /etc/klipperos-ai/ altina yazilacak
+# KlipperScreen baska user'da calisir ama dosyalar world-readable
+UMask=0022
+
+# Daemon olarak calisir (Type=simple), ctrl+c ile durdurulabilir
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=0
+
+# Cikis koduna gore tekrar baslatma
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment=TERM=linux
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kos-oobe
+
+[Install]
+WantedBy=multi-user.target

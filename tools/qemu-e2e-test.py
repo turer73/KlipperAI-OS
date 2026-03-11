@@ -28,7 +28,8 @@ LOGIN_PASS = "klipper"
 
 BOOT_TIMEOUT = 300      # 5 min for kernel boot
 LOGIN_TIMEOUT = 180     # 3 min for login prompt
-INSTALL_TIMEOUT = 900   # 15 min for disk install
+DISK_TIMEOUT = 600      # 10 min for disk partition + format + squashfs
+PACKAGE_TIMEOUT = 3600  # 60 min for apt-get + all component installers via SLIRP
 GRUB_TIMEOUT = 300      # 5 min for GRUB install
 NETWORK_TIMEOUT = 300   # 5 min total for network step
 
@@ -203,7 +204,7 @@ class QEMUSerialClient:
 
     def wait_for_new(self, pattern: str, timeout: int = 60, advance: bool = True) -> bool:
         """Wait for pattern in NEW output (since cursor). Advances cursor on match."""
-        compiled = re.compile(pattern, re.IGNORECASE)
+        compiled = re.compile(pattern, re.IGNORECASE | re.DOTALL)
         start = time.time()
 
         while time.time() - start < timeout:
@@ -226,7 +227,7 @@ class QEMUSerialClient:
 
     def wait_for_any_new(self, patterns: list, timeout: int = 60) -> int:
         """Wait for any pattern in NEW output. Returns index or -1."""
-        compiled = [(re.compile(p, re.IGNORECASE), p) for p in patterns]
+        compiled = [(re.compile(p, re.IGNORECASE | re.DOTALL), p) for p in patterns]
         start = time.time()
 
         while time.time() - start < timeout:
@@ -631,31 +632,30 @@ def step_disk_install(c: QEMUSerialClient) -> bool:
     log("Disk installation in progress...")
 
     start = time.time()
-    while time.time() - start < INSTALL_TIMEOUT:
+    while time.time() - start < DISK_TIMEOUT:
         idx = c.wait_for_any_new([
             r'Kullanici|[Hh]ostname|Cihaz.*adi',     # 0: user setup
             r'Paket|Package|apt.*install',             # 1: packages
             r'[Bb]olum|partition|fdisk|parted',        # 2: partitioning
             r'mkfs|format|dosya.*sistemi',             # 3: formatting
-            r'squashfs|unsquash|extract',               # 4: squashfs (NOT 'kopyala' — too broad)
+            r'squashfs|unsquash|extract',               # 4: squashfs
             r'mount|bagla',                            # 5: mounting
-            r'Servis|Service|yapilandir',              # 6: services (skipped user/pkg)
+            r'Servis|Service|yapilandir',              # 6: services
             r'GRUB|grub|[Bb]ootloader',                # 7: bootloader
             r'Tamamland|Complete|Bitti',               # 8: done
-            r'Hata|Error|FAIL|basarisiz|kopyalanamadi', # 9: error (added kopyalanamadi)
+            r'Hata|Error|FAIL|basarisiz|kopyalanamadi', # 9: error
         ], timeout=60)
 
         elapsed = time.time() - start
         if idx in (0, 1, 6, 7, 8):
             labels = {0: "User Setup", 1: "Packages", 6: "Services", 7: "GRUB", 8: "Complete"}
-            log(f"  → {labels.get(idx, 'Next step')} ({elapsed:.0f}s)")
+            log(f"  -> {labels.get(idx, 'Next step')} ({elapsed:.0f}s)")
             return True
         elif idx in (2, 3, 4, 5):
             labels = {2: "Partitioning", 3: "Formatting", 4: "Squashfs", 5: "Mounting"}
             log(f"  {labels[idx]}... ({elapsed:.0f}s)")
         elif idx == 9:
             log(f"  ERROR! ({elapsed:.0f}s)")
-            # Show error context
             snippet = c.get_new_output()[-200:].replace('\n', '|')
             log(f"  Error context: ...{snippet}")
             c.send_key('enter')  # Dismiss error dialog
@@ -680,77 +680,120 @@ def step_user_setup(c: QEMUSerialClient) -> bool:
     if c.wait_for_new(r'hostname|Cihaz.*adi|cihaz.*ismi|Bilgisayar', timeout=60):
         time.sleep(1)
         c.send_key('enter')  # Accept default hostname
-        time.sleep(2)
-        c.advance_cursor()
-    # Password — may be auto-skipped in dry_run
-    if c.wait_for_new(r'[Ss]ifre|[Pp]assword|parola', timeout=30):
+        time.sleep(3)
+    # Password — whiptail passwordbox
+    if c.wait_for_new(r'[Ss]ifre|[Pp]assword|parola|Kullanici', timeout=30):
         time.sleep(1)
-        c.send_key('enter')  # Accept default password
+        c.send_key('enter')  # Accept empty (keep default)
         time.sleep(2)
-        c.advance_cursor()
     return True
 
 
 def step_package_install(c: QEMUSerialClient) -> bool:
-    """Package installation (may be skipped without network)."""
+    """Package installation (may be skipped without network).
+
+    The installer shows a blocking "Kurulum Basliyor" msgbox first, which
+    needs Enter to dismiss before any progress bars appear.
+    """
     log("Waiting for Package installation...")
+
+    # 1. Dismiss the "Kurulum Basliyor" intro msgbox (blocking)
+    if c.wait_for_new(r'Kurulum.*Basliyor|Basliyor.*profil', timeout=30):
+        log("  Install intro msgbox -> Enter")
+        time.sleep(1)
+        c.send_key('enter')
+        time.sleep(2)
+    else:
+        # Might have missed it — send Enter just in case
+        log("  No intro msgbox detected, sending Enter")
+        c.send_key('enter')
+        time.sleep(2)
+
+    # 2. Wait for installation progress or next step
+    #    Full install: apt-get update (120s) + apt-get install (600s) +
+    #    component installers (~1400s total) = ~36 min via QEMU SLIRP
     start = time.time()
-    while time.time() - start < INSTALL_TIMEOUT:
+    while time.time() - start < PACKAGE_TIMEOUT:
         idx = c.wait_for_any_new([
-            r'Servis|Service|Nginx|yapilandir',   # 0: services
-            r'GRUB|grub|[Bb]ootloader',            # 1: bootloader
-            r'Tamamland|Complete|Bitti',            # 2: done
-            r'Paket|Package|kuruluyor|apt',         # 3: installing
-            r'Hata|Error|FAIL',                     # 4: error
+            r'Yapilandirma|Servis|Nginx',              # 0: services step
+            r'GRUB|grub|[Bb]ootloader|fstab',          # 1: bootloader step
+            r'Kurulum.*Tamamland|basariyla.*kuruldu',   # 2: completion
+            r'Paket|Package|kuruluyor|apt|Kuruluyor',   # 3: installing
+            r'Hata|Error|FAIL|basarisiz',               # 4: error
         ], timeout=60)
 
         elapsed = time.time() - start
         if idx in (0, 1, 2):
-            log(f"  Packages done → next ({elapsed:.0f}s)")
+            log(f"  Packages done -> next step ({elapsed:.0f}s)")
             return True
         elif idx == 3:
             log(f"  Installing... ({elapsed:.0f}s)")
         elif idx == 4:
-            log(f"  Error ({elapsed:.0f}s)")
+            log(f"  Error ({elapsed:.0f}s) - sending Enter")
             c.send_key('enter')
         else:
             if c.check_at_login():
-                log("  Back at login")
+                log("  Back at login — install failed")
                 return False
             log(f"  Waiting... ({elapsed:.0f}s)")
+    log("  Package install timeout — continuing")
     return True
 
 
 def step_services(c: QEMUSerialClient) -> bool:
-    """Service configuration step."""
+    """Service configuration (quick — file writes, no user interaction)."""
     log("Waiting for Service configuration...")
-    if c.wait_for_new(r'GRUB|grub|[Bb]ootloader|Yukleyici|Tamamland', timeout=INSTALL_TIMEOUT):
-        log("  Services done")
-        c.advance_cursor()
-        return True
+    # Services are file writes (Nginx config, mkdir, systemctl enable).
+    # No blocking dialogs. Wait for bootloader or completion to appear.
+    idx = c.wait_for_any_new([
+        r'GRUB|grub|[Bb]ootloader|fstab',          # 0: bootloader started
+        r'Kurulum.*Tamamland',                      # 1: already at completion
+        r'Yapilandirma|Servis|Nginx|yazici',        # 2: still in services
+    ], timeout=120)
+    if idx == 2:
+        log("  Services in progress...")
+        c.wait_for_new(r'GRUB|grub|[Bb]ootloader|fstab|Tamamland', timeout=120)
+    log("  Services done")
     return True
 
 
 def step_bootloader(c: QEMUSerialClient) -> bool:
     """GRUB bootloader installation."""
     log("Waiting for Bootloader (GRUB)...")
-    if c.wait_for_new(r'Tamamland|Complete|Bitti|Basarili|unmount|Yeniden', timeout=GRUB_TIMEOUT):
-        log("  GRUB done!")
-        c.advance_cursor()
-        return True
+    start = time.time()
+    while time.time() - start < GRUB_TIMEOUT:
+        idx = c.wait_for_any_new([
+            r'Kurulum.*Tamamland|basariyla.*kuruldu',   # 0: all done -> complete
+            r'GRUB|grub|fstab|Bootloader',              # 1: still in bootloader
+            r'Hata|Error|FAIL|basarisiz',               # 2: error
+        ], timeout=60)
+
+        elapsed = time.time() - start
+        if idx == 0:
+            log(f"  Bootloader done ({elapsed:.0f}s)")
+            return True
+        elif idx == 1:
+            log(f"  GRUB installing... ({elapsed:.0f}s)")
+        elif idx == 2:
+            log(f"  GRUB error ({elapsed:.0f}s) - sending Enter")
+            c.send_key('enter')  # Dismiss error msgbox
+        else:
+            log(f"  Waiting... ({elapsed:.0f}s)")
+    log("  Bootloader timeout — continuing")
     return True
 
 
 def step_complete(c: QEMUSerialClient) -> bool:
-    """Completion screen — reboot prompt."""
+    """Completion screen — blocking msgbox, needs Enter to reboot."""
     log("Waiting for completion...")
-    if c.wait_for_new(r'Tamamland|Complete|Bitti|Yeniden.*baslat|reboot', timeout=60):
+    if c.wait_for_new(r'Tamamland|Complete|Bitti|Yeniden.*baslat|reboot', timeout=120):
         time.sleep(2)
         c.send_key('enter')
-        log("  Reboot initiated!")
-        c.advance_cursor()
+        log("  Completion msgbox dismissed!")
         return True
+    # Might already be past it, send Enter anyway
     c.send_key('enter')
+    log("  Sent Enter (no completion detected)")
     return True
 
 

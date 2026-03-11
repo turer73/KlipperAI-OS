@@ -10,13 +10,42 @@ build/
 
 # Build artifacts
 image-builder/build/
+image-builder/build-netinstall/
 *.iso
+*.iso.sha256
+*.iso.parta*
+*.iso.partb*
 *.img
 *.img.xz
 *.img.part*
 *.img.sha256
 *.img.xz.sha256
 *.img.parts.sha256
+
+# Temporary files (SSH/debug scripts)
+tmp_*
+_diag.py
+nul
+
+# Data / training (large files)
+extracted_frames/
+video_samples/
+training/
+*.onnx
+*.tflite
+
+# Node modules
+node_modules/
+.next/
+packages/web/node_modules/
+packages/web/.next/
+
+# Tool configs (local)
+.claude/
+.playwright-mcp/
+
+# Docker (local dev)
+# docker/ and Dockerfiles are tracked
 
 # IDE
 .vscode/

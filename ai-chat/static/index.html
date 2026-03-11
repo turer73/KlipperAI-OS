@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KlipperOS-AI Asistan</title>
+<style>
+:root {
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #181825;
+  --bg-surface: #282840;
+  --bg-chat-user: #3b5998;
+  --bg-chat-ai: #2d2d44;
+  --text-primary: #e0e0e0;
+  --text-secondary: #a0a0b0;
+  --accent: #f5a623;
+  --accent-hover: #e6961a;
+  --green: #4caf50;
+  --red: #e74c3c;
+  --border: #3a3a5a;
+  --scrollbar: #3a3a5a;
+  --code-bg: #1a1a2e;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header */
+.header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.header h1 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.header .logo {
+  font-size: 22px;
+}
+.status-bar {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+}
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+}
+.status-dot.online { background: var(--green); }
+
+/* Quick Actions */
+.quick-actions {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.quick-actions::-webkit-scrollbar { display: none; }
+.quick-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.quick-btn:hover {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+/* Chat Area */
+.chat-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+.chat-area::-webkit-scrollbar { width: 6px; }
+.chat-area::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+
+/* Messages */
+.message {
+  display: flex;
+  gap: 10px;
+  max-width: 85%;
+  animation: fadeIn 0.3s ease;
+}
+.message.user { align-self: flex-end; flex-direction: row-reverse; }
+.message.ai { align-self: flex-start; }
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.message.user .avatar { background: var(--bg-chat-user); }
+.message.ai .avatar { background: var(--accent); color: #000; }
+
+.bubble {
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-wrap: break-word;
+}
+.message.user .bubble {
+  background: var(--bg-chat-user);
+  border-bottom-right-radius: 4px;
+}
+.message.ai .bubble {
+  background: var(--bg-chat-ai);
+  border-bottom-left-radius: 4px;
+}
+
+/* Markdown in AI messages */
+.bubble code {
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+}
+.bubble pre {
+  background: var(--code-bg);
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.bubble pre code {
+  background: none;
+  padding: 0;
+}
+.bubble strong { color: var(--accent); }
+.bubble ul, .bubble ol { padding-left: 18px; margin: 6px 0; }
+.bubble li { margin: 3px 0; }
+
+/* Typing indicator */
+.typing {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+.typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  animation: bounce 1.4s infinite;
+}
+.typing span:nth-child(2) { animation-delay: 0.2s; }
+.typing span:nth-child(3) { animation-delay: 0.4s; }
+
+/* Printer Status Banner */
+.printer-banner {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 6px;
+}
+.printer-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.printer-stat .label { color: var(--text-secondary); }
+.printer-stat .value { color: var(--text-primary); font-weight: 500; }
+.printer-stat .value.hot { color: var(--red); }
+.printer-stat .value.warm { color: var(--accent); }
+
+/* Input Area */
+.input-area {
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.input-wrapper {
+  flex: 1;
+  display: flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.input-wrapper:focus-within {
+  border-color: var(--accent);
+}
+#chatInput {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  padding: 10px 16px;
+  font-size: 14px;
+  outline: none;
+  resize: none;
+  max-height: 100px;
+  font-family: inherit;
+}
+#chatInput::placeholder { color: var(--text-secondary); }
+#sendBtn {
+  background: var(--accent);
+  border: none;
+  color: #000;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+#sendBtn:hover { background: var(--accent-hover); }
+#sendBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Welcome */
+.welcome {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+}
+.welcome h2 {
+  color: var(--accent);
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+.welcome p { font-size: 14px; margin-bottom: 4px; }
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-6px); }
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .message { max-width: 95%; }
+  .header h1 { font-size: 14px; }
+  .status-bar { gap: 8px; font-size: 11px; }
+  .quick-actions { padding: 6px 12px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <span class="logo">🤖</span>
+    <h1>KlipperOS-AI Asistan</h1>
+  </div>
+  <div class="status-bar">
+    <div class="status-item">
+      <div class="status-dot" id="ollamaStatus"></div>
+      <span>Ollama</span>
+    </div>
+    <div class="status-item">
+      <div class="status-dot" id="printerStatus"></div>
+      <span>Yazıcı</span>
+    </div>
+    <div class="status-item" id="modelName" style="color:var(--text-secondary)"></div>
+  </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="quick-actions">
+  <button class="quick-btn" data-msg="Yazıcının durumunu kontrol et ve özet ver.">📊 Durum Özeti</button>
+  <button class="quick-btn" data-msg="Baskı kalitesi sorunlarım var. Yardım eder misin?">🔍 Kalite Sorunları</button>
+  <button class="quick-btn" data-msg="Tabla seviyeleme nasıl yapılır? Adım adım anlat.">📐 Tabla Seviyeleme</button>
+  <button class="quick-btn" data-msg="PLA filament için ideal baskı ayarları nelerdir?">🎯 PLA Ayarları</button>
+  <button class="quick-btn" data-msg="Klipper firmware ayarlarımı optimize et.">⚙️ Klipper Ayarları</button>
+  <button class="quick-btn" data-msg="İlk katman yapışmıyor, ne yapmalıyım?">🔧 İlk Katman</button>
+  <button class="quick-btn" data-msg="Stringing/ipliklenme sorunu nasıl çözülür?">🕸️ Stringing</button>
+  <button class="quick-btn" data-msg="Yazıcının sıcaklık değerlerini analiz et. Normal mi?">🌡️ Sıcaklık Analizi</button>
+  <button class="quick-btn" data-msg="Input shaper kalibrasyonu nasıl yapılır? ADXL345 bağlantısı ve adımları anlat.">📈 Input Shaper</button>
+  <button class="quick-btn" data-msg="Pressure advance ayarı nasıl yapılır? Kalibrasyon tower'ı ile.">💨 Pressure Advance</button>
+  <button class="quick-btn" data-msg="Sistem sağlık kontrolü yap: CPU, RAM, disk, servisler.">💻 Sistem Sağlığı</button>
+  <button class="quick-btn" data-msg="Moonraker API ile neler yapabilirim? Örnek komutlar ver.">🔌 Moonraker API</button>
+</div>
+
+<!-- Chat Area -->
+<div class="chat-area" id="chatArea">
+  <!-- Printer Status Banner -->
+  <div class="printer-banner" id="printerBanner" style="display:none;"></div>
+
+  <!-- Welcome Message -->
+  <div class="welcome" id="welcome">
+    <h2>🤖 Merhaba!</h2>
+    <p>KlipperOS-AI yapay zeka asistanınız hazır.</p>
+    <p style="font-size:12px; margin-top:8px;">Yazıcınız hakkında soru sorun veya yukarıdaki hızlı butonları kullanın.</p>
+    <p style="font-size:11px; margin-top:12px; color:#888;">⚡ Qwen2.5-3B fine-tuned model — Klipper uzmanı AI</p>
+  </div>
+</div>
+
+<!-- Input -->
+<div class="input-area">
+  <div class="input-wrapper">
+    <textarea id="chatInput" rows="1" placeholder="Mesajınızı yazın..." autofocus></textarea>
+  </div>
+  <button id="sendBtn" title="Gönder">➤</button>
+</div>
+
+<script>
+// API_BASE: nginx proxy /ai-chat/ uzerinden geliyorsak port 8085'e yonlendir
+// Dogrudan :8085 uzerinden geliyorsak aynen kalsin
+const API_BASE = window.location.port === '8085'
+  ? window.location.origin
+  : window.location.origin.replace(/:\d+$/, '') + ':8085';
+const chatArea = document.getElementById('chatArea');
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+const welcome = document.getElementById('welcome');
+const printerBanner = document.getElementById('printerBanner');
+
+let conversationHistory = [];
+let isStreaming = false;
+
+// --- Status Check ---
+async function checkStatus() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/status`);
+    const data = await resp.json();
+
+    document.getElementById('ollamaStatus').className =
+      'status-dot ' + (data.ollama ? 'online' : '');
+    document.getElementById('printerStatus').className =
+      'status-dot ' + (data.printer_state !== 'unknown' ? 'online' : '');
+    document.getElementById('modelName').textContent = data.model || '';
+  } catch (e) {
+    console.error('Status check failed:', e);
+  }
+}
+
+async function updatePrinterBanner() {
+  try {
+    const resp = await fetch(`${API_BASE}/api/printer`);
+    const s = await resp.json();
+
+    // state obje olarak gelebilir (Moonraker versiyon farki)
+    const stateStr = typeof s.state === 'string' ? s.state
+                   : (s.state && s.state.text) ? s.state.text
+                   : String(s.state || 'unknown');
+
+    if (stateStr === 'unknown') {
+      printerBanner.style.display = 'none';
+      return;
+    }
+
+    const tempClass = (t) => t > 150 ? 'hot' : t > 40 ? 'warm' : '';
+
+    printerBanner.innerHTML = `
+      <div class="printer-stat">
+        <span class="label">Durum:</span>
+        <span class="value">${stateStr}</span>
+      </div>
+      <div class="printer-stat">
+        <span class="label">🔥 Nozul:</span>
+        <span class="value ${tempClass(s.extruder_temp)}">${(s.extruder_temp||0).toFixed(1)}°C${s.extruder_target > 0 ? ' → ' + s.extruder_target + '°C' : ''}</span>
+      </div>
+      <div class="printer-stat">
+        <span class="label">🛏️ Tabla:</span>
+        <span class="value ${tempClass(s.bed_temp)}">${(s.bed_temp||0).toFixed(1)}°C${s.bed_target > 0 ? ' → ' + s.bed_target + '°C' : ''}</span>
+      </div>
+      <div class="printer-stat">
+        <span class="label">📄 Baskı:</span>
+        <span class="value">${s.print_state || 'standby'}${s.filename ? ' — ' + s.filename : ''}</span>
+      </div>
+    `;
+    printerBanner.style.display = 'grid';
+  } catch (e) {
+    printerBanner.style.display = 'none';
+  }
+}
+
+// --- Message Rendering ---
+function addMessage(role, content) {
+  if (welcome.style.display !== 'none') welcome.style.display = 'none';
+
+  const msg = document.createElement('div');
+  msg.className = `message ${role}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  avatar.textContent = role === 'user' ? '👤' : '🤖';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.innerHTML = role === 'ai' ? renderMarkdown(content) : escapeHtml(content);
+
+  msg.appendChild(avatar);
+  msg.appendChild(bubble);
+  chatArea.appendChild(msg);
+  scrollToBottom();
+  return bubble;
+}
+
+let typingTimer = null;
+let typingStartTime = 0;
+
+function addTypingIndicator() {
+  const msg = document.createElement('div');
+  msg.className = 'message ai';
+  msg.id = 'typingMsg';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  avatar.textContent = '🤖';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>' +
+    '<div id="typingTime" style="font-size:11px;color:var(--text-secondary);margin-top:4px;">Düşünüyor...</div>';
+
+  msg.appendChild(avatar);
+  msg.appendChild(bubble);
+  chatArea.appendChild(msg);
+  scrollToBottom();
+
+  // Elapsed time counter
+  typingStartTime = Date.now();
+  typingTimer = setInterval(() => {
+    const el = document.getElementById('typingTime');
+    if (el) {
+      const sec = Math.floor((Date.now() - typingStartTime) / 1000);
+      el.textContent = `Düşünüyor... ${sec}s`;
+    }
+  }, 1000);
+}
+
+function removeTypingIndicator() {
+  if (typingTimer) { clearInterval(typingTimer); typingTimer = null; }
+  const el = document.getElementById('typingMsg');
+  if (el) el.remove();
+}
+
+function scrollToBottom() {
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+// --- Markdown Rendering (lightweight) ---
+function renderMarkdown(text) {
+  let html = escapeHtml(text);
+
+  // Code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Unordered lists
+  html = html.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  // Ordered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<strong style="font-size:14px">$1</strong>');
+  html = html.replace(/^## (.+)$/gm, '<strong style="font-size:15px">$1</strong>');
+  html = html.replace(/^# (.+)$/gm, '<strong style="font-size:16px">$1</strong>');
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+  // Clean up
+  html = html.replace(/<br><br>/g, '</p><p>');
+
+  return html;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// --- Chat / Streaming ---
+async function sendMessage(text) {
+  if (!text.trim() || isStreaming) return;
+
+  isStreaming = true;
+  sendBtn.disabled = true;
+
+  // Add user message
+  addMessage('user', text);
+  conversationHistory.push({ role: 'user', content: text });
+
+  addTypingIndicator();
+
+  try {
+    const resp = await fetch(`${API_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: conversationHistory.slice(-8) }),
+    });
+
+    removeTypingIndicator();
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    // SSE streaming
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let aiContent = '';
+    let bubble = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+
+        if (data === '[DONE]') break;
+
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.token) {
+            aiContent += parsed.token;
+            if (!bubble) {
+              bubble = addMessage('ai', aiContent);
+            } else {
+              bubble.innerHTML = renderMarkdown(aiContent);
+            }
+            scrollToBottom();
+          }
+          if (parsed.error) {
+            aiContent += `\n⚠️ ${parsed.error}`;
+            if (bubble) bubble.innerHTML = renderMarkdown(aiContent);
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (aiContent) {
+      conversationHistory.push({ role: 'assistant', content: aiContent });
+    }
+
+    // Limit history (son 20 mesaj — i7 yeterli context'e sahip)
+    if (conversationHistory.length > 20) {
+      conversationHistory = conversationHistory.slice(-20);
+    }
+
+  } catch (err) {
+    removeTypingIndicator();
+    addMessage('ai', `⚠️ Bağlantı hatası: ${err.message}`);
+  } finally {
+    isStreaming = false;
+    sendBtn.disabled = false;
+    chatInput.focus();
+  }
+}
+
+// --- Event Listeners ---
+sendBtn.addEventListener('click', () => {
+  sendMessage(chatInput.value);
+  chatInput.value = '';
+  chatInput.style.height = 'auto';
+});
+
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage(chatInput.value);
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+  }
+});
+
+// Auto-resize textarea
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 100) + 'px';
+});
+
+// Quick action buttons
+document.querySelectorAll('.quick-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const msg = btn.dataset.msg;
+    if (msg) sendMessage(msg);
+  });
+});
+
+// --- Init ---
+checkStatus();
+updatePrinterBanner();
+setInterval(checkStatus, 15000);
+setInterval(updatePrinterBanner, 10000);
+</script>
+</body>
+</html>

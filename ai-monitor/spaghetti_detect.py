@@ -1,9 +1,17 @@
 """
-KlipperOS-AI — Spaghetti Detection Module
-==========================================
-TFLite modeli ile 3D baski hatasi tespiti.
+KlipperOS-AI — Spaghetti Detection Module (v3 — ONNX Runtime)
+==============================================================
+ONNX Runtime ile 3D baski hatasi tespiti.
 5 sinif: normal, spaghetti, no_extrusion, stringing, completed.
-Spaghetti / ekstruzyon kaybi / stringing / baski tamamlanma tespiti.
+
+v3 degisiklik:
+    - TFLite → ONNX Runtime gecisi
+    - Tek backend: onnxruntime (tflite/ai-edge-litert/tensorflow fallback yok)
+    - .tflite yerine .onnx model dosyasi
+    - Geriye uyumlu API: SpaghettiDetector.detect() degismedi
+
+Model donusumu:
+    python -m tf2onnx.convert --tflite spaghetti_detect.tflite --output spaghetti_detect.onnx
 """
 
 import logging
@@ -17,7 +25,10 @@ logger = logging.getLogger("klipperos-ai.detect")
 
 # Varsayilan model dizini
 DEFAULT_MODEL_DIR = Path(__file__).parent / "models"
-DEFAULT_MODEL_NAME = "spaghetti_detect.tflite"
+
+# v3: Oncelik ONNX, fallback olarak TFLite de denenir
+DEFAULT_MODEL_NAME_ONNX = "spaghetti_detect.onnx"
+DEFAULT_MODEL_NAME_TFLITE = "spaghetti_detect.tflite"  # geriye uyumluluk
 
 # Sinif etiketleri
 CLASS_LABELS = {
@@ -30,61 +41,198 @@ CLASS_LABELS = {
 
 # Tehlike esikleri
 THRESHOLDS = {
-    "spaghetti": 0.70,     # %70 guven -> duraklat
-    "no_extrusion": 0.75,  # %75 guven -> duraklat
-    "stringing": 0.80,     # %80 guven -> uyar
+    "spaghetti": 0.65,     # %65 guven -> duraklat (v4 dusuruldu)
+    "no_extrusion": 0.60,  # %60 guven -> duraklat (v4 dusuruldu)
+    "stringing": 0.75,     # %75 guven -> uyar (v4 dusuruldu)
     "completed": 0.85,     # %85 guven -> tamamlandi bildir
 }
 
+# Anomali tespiti: normal sinif guveni bu esik altindaysa -> anomali
+NORMAL_LOW_THRESHOLD = 0.40
+
+
+# ---------------------------------------------------------------------------
+# Backend Protocol
+# ---------------------------------------------------------------------------
+
+class _InferenceBackend:
+    """Inference backend arayuzu (duck typing)."""
+    def load(self, model_path: str) -> bool: ...
+    def infer(self, input_data: np.ndarray) -> np.ndarray: ...
+    def input_shape(self) -> tuple: ...
+    @property
+    def name(self) -> str: ...
+
+
+class ONNXBackend:
+    """ONNX Runtime inference backend."""
+
+    def __init__(self):
+        self._session = None
+        self._input_name: str = ""
+        self._input_shape: tuple = ()
+
+    @property
+    def name(self) -> str:
+        return "onnxruntime"
+
+    def load(self, model_path: str) -> bool:
+        try:
+            import onnxruntime as ort
+            # SBC icin optimize: sadece CPU, thread sayisi kisitli
+            opts = ort.SessionOptions()
+            opts.inter_op_num_threads = 1
+            opts.intra_op_num_threads = 2
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+            self._session = ort.InferenceSession(
+                model_path, sess_options=opts,
+                providers=["CPUExecutionProvider"],
+            )
+            inp = self._session.get_inputs()[0]
+            self._input_name = inp.name
+            self._input_shape = tuple(inp.shape)
+            logger.info("ONNX model yuklendi: %s (input: %s, name: %s)",
+                        model_path, self._input_shape, self._input_name)
+            return True
+        except ImportError:
+            logger.warning("onnxruntime kurulu degil: pip install onnxruntime")
+            return False
+        except Exception as exc:
+            logger.error("ONNX model yukleme hatasi: %s", exc)
+            return False
+
+    def infer(self, input_data: np.ndarray) -> np.ndarray:
+        result = self._session.run(None, {self._input_name: input_data})
+        return result[0]
+
+    def input_shape(self) -> tuple:
+        return self._input_shape
+
+
+class TFLiteBackend:
+    """TFLite fallback backend (geriye uyumluluk)."""
+
+    def __init__(self):
+        self._interpreter = None
+        self._input_details = None
+        self._output_details = None
+
+    @property
+    def name(self) -> str:
+        return "tflite"
+
+    def load(self, model_path: str) -> bool:
+        try:
+            try:
+                import tflite_runtime.interpreter as tflite
+                self._interpreter = tflite.Interpreter(model_path=model_path)
+            except ImportError:
+                try:
+                    from ai_edge_litert.interpreter import Interpreter
+                    self._interpreter = Interpreter(model_path=model_path)
+                except ImportError:
+                    import tensorflow as tf
+                    self._interpreter = tf.lite.Interpreter(model_path=model_path)
+
+            self._interpreter.allocate_tensors()
+            self._input_details = self._interpreter.get_input_details()
+            self._output_details = self._interpreter.get_output_details()
+            logger.info("TFLite model yuklendi: %s", model_path)
+            return True
+        except ImportError:
+            logger.warning("TFLite runtime bulunamadi")
+            return False
+        except Exception as exc:
+            logger.error("TFLite model yukleme hatasi: %s", exc)
+            return False
+
+    def infer(self, input_data: np.ndarray) -> np.ndarray:
+        self._interpreter.set_tensor(
+            self._input_details[0]["index"], input_data
+        )
+        self._interpreter.invoke()
+        return self._interpreter.get_tensor(
+            self._output_details[0]["index"]
+        )
+
+    def input_shape(self) -> tuple:
+        if self._input_details:
+            return tuple(self._input_details[0]["shape"])
+        return ()
+
+
+# ---------------------------------------------------------------------------
+# Detector
+# ---------------------------------------------------------------------------
 
 class SpaghettiDetector:
-    """TFLite tabanli baski hatasi tespit sinifi."""
+    """Baski hatasi tespit sinifi — ONNX Runtime (v3) + TFLite fallback.
+
+    API v2 ile tamamen geriye uyumlu: detect(), is_loaded, input_shape
+    ayni sekilde calisir.
+    """
 
     def __init__(
         self,
         model_path: Optional[str] = None,
         thresholds: Optional[dict] = None,
     ):
-        self.model_path = model_path or str(DEFAULT_MODEL_DIR / DEFAULT_MODEL_NAME)
+        self.model_path = model_path  # None ise otomatik tespit
         self.thresholds = thresholds or THRESHOLDS
-        self._interpreter = None
-        self._input_details = None
-        self._output_details = None
+        self._backend: Optional[_InferenceBackend] = None
         self._loaded = False
 
     def load_model(self) -> bool:
-        """TFLite modelini yukle."""
-        if not os.path.exists(self.model_path):
-            logger.warning("Model dosyasi bulunamadi: %s", self.model_path)
-            logger.info("Model indirmek icin: kos_update download-models")
+        """Model yukle — once ONNX, sonra TFLite dene.
+
+        Model yolu verilmemisse models/ dizininde once .onnx sonra
+        .tflite dosyasini arar.
+        """
+        if self.model_path:
+            # Acik yol verildi
+            return self._try_load(self.model_path)
+
+        # Otomatik tespit: once ONNX
+        onnx_path = DEFAULT_MODEL_DIR / DEFAULT_MODEL_NAME_ONNX
+        if onnx_path.exists():
+            if self._try_load(str(onnx_path)):
+                return True
+
+        # Fallback: TFLite
+        tflite_path = DEFAULT_MODEL_DIR / DEFAULT_MODEL_NAME_TFLITE
+        if tflite_path.exists():
+            if self._try_load(str(tflite_path)):
+                return True
+
+        logger.warning("Model dosyasi bulunamadi: %s veya %s",
+                        onnx_path, tflite_path)
+        logger.info("Model indirmek icin: kos_update download-models")
+        return False
+
+    def _try_load(self, path: str) -> bool:
+        """Verilen model dosyasini uygun backend ile yukle."""
+        if not os.path.exists(path):
             return False
 
-        try:
-            import tflite_runtime.interpreter as tflite
-            self._interpreter = tflite.Interpreter(model_path=self.model_path)
-        except ImportError:
-            try:
-                from ai_edge_litert.interpreter import Interpreter
-                self._interpreter = Interpreter(model_path=self.model_path)
-            except ImportError:
-                try:
-                    import tensorflow as tf
-                    self._interpreter = tf.lite.Interpreter(model_path=self.model_path)
-                except ImportError:
-                    logger.error(
-                        "TFLite runtime bulunamadi. "
-                        "Kurun: pip install tflite-runtime veya pip install ai-edge-litert"
-                    )
-                    return False
+        if path.endswith(".onnx"):
+            backend = ONNXBackend()
+            if backend.load(path):
+                self._backend = backend
+                self._loaded = True
+                self.model_path = path
+                return True
 
-        self._interpreter.allocate_tensors()
-        self._input_details = self._interpreter.get_input_details()
-        self._output_details = self._interpreter.get_output_details()
-        self._loaded = True
+        if path.endswith(".tflite"):
+            backend = TFLiteBackend()
+            if backend.load(path):
+                self._backend = backend
+                self._loaded = True
+                self.model_path = path
+                return True
 
-        input_shape = self._input_details[0]["shape"]
-        logger.info("Model yuklendi: %s (input: %s)", self.model_path, input_shape)
-        return True
+        logger.warning("Desteklenmeyen model formati: %s", path)
+        return False
 
     def detect(self, frame: np.ndarray) -> dict:
         """Frame uzerinde baski hatasi tespiti yap.
@@ -97,35 +245,36 @@ class SpaghettiDetector:
                 "class": "normal|spaghetti|no_extrusion|stringing|completed",
                 "confidence": float (0-1),
                 "action": "none|pause|notify|complete",
-                "scores": {class_name: score, ...}
+                "scores": {class_name: score, ...},
+                "backend": "onnxruntime|tflite"
             }
         """
-        if not self._loaded:
+        if not self._loaded or self._backend is None:
             return self._no_model_result()
 
         try:
             # Input boyutunu ayarla
-            input_shape = self._input_details[0]["shape"]
-            expected_h, expected_w = input_shape[1], input_shape[2]
+            shape = self._backend.input_shape()
+            if len(shape) >= 3:
+                expected_h, expected_w = shape[1], shape[2]
 
-            if frame.shape[0] != expected_h or frame.shape[1] != expected_w:
-                from PIL import Image
-                img = Image.fromarray((frame * 255).astype(np.uint8))
-                img = img.resize((expected_w, expected_h), Image.BILINEAR)
-                frame = np.array(img, dtype=np.float32) / 255.0
+                if frame.shape[0] != expected_h or frame.shape[1] != expected_w:
+                    from PIL import Image
+                    img = Image.fromarray((frame * 255).astype(np.uint8))
+                    img = img.resize((expected_w, expected_h), Image.BILINEAR)
+                    frame = np.array(img, dtype=np.float32) / 255.0
 
             # Batch dimension ekle
             input_data = np.expand_dims(frame, axis=0).astype(np.float32)
 
             # Inference
-            self._interpreter.set_tensor(self._input_details[0]["index"], input_data)
-            self._interpreter.invoke()
-
-            output_data = self._interpreter.get_tensor(self._output_details[0]["index"])
-            scores = output_data[0]
+            output_data = self._backend.infer(input_data)
+            scores = output_data[0] if output_data.ndim > 1 else output_data
 
             # Sonuclari isle
-            return self._process_scores(scores)
+            result = self._process_scores(scores)
+            result["backend"] = self._backend.name
+            return result
 
         except Exception as e:
             logger.error("Tespit hatasi: %s", e)
@@ -158,6 +307,26 @@ class SpaghettiDetector:
         elif predicted_class == "completed" and confidence >= self.thresholds.get("completed", 0.85):
             action = "complete"
 
+
+        # v4: Anomali tespiti - normal skoru cok dusukse
+        # Hicbir sinif kendi esigini gecmese bile, bilinmeyen anomali olarak isle
+        if action == "none" and class_scores.get("normal", 1.0) < NORMAL_LOW_THRESHOLD:
+            anomaly_classes = {k: v for k, v in class_scores.items() if k != "normal"}
+            if anomaly_classes:
+                top_anomaly = max(anomaly_classes, key=anomaly_classes.get)
+                top_score = anomaly_classes[top_anomaly]
+                if top_score > 0.30:
+                    action = "pause"
+                    predicted_class = top_anomaly
+                    confidence = top_score
+                    logger.warning(
+                        "ANOMALI tespit: normal=%.1f%% < %d%%, en yuksek: %s=%.1f%%",
+                        class_scores.get("normal", 0) * 100,
+                        int(NORMAL_LOW_THRESHOLD * 100),
+                        top_anomaly,
+                        top_score * 100,
+                    )
+
         return {
             "class": predicted_class,
             "confidence": confidence,
@@ -166,7 +335,6 @@ class SpaghettiDetector:
         }
 
     def _no_model_result(self) -> dict:
-        """Model yuklu degilken dondurulecek sonuc."""
         return {
             "class": "unknown",
             "confidence": 0.0,
@@ -176,7 +344,6 @@ class SpaghettiDetector:
         }
 
     def _error_result(self, error_msg: str) -> dict:
-        """Hata durumunda dondurulecek sonuc."""
         return {
             "class": "error",
             "confidence": 0.0,
@@ -190,7 +357,14 @@ class SpaghettiDetector:
         return self._loaded
 
     @property
+    def backend_name(self) -> str:
+        """Aktif backend adi."""
+        if self._backend:
+            return self._backend.name
+        return "none"
+
+    @property
     def input_shape(self) -> Optional[tuple]:
-        if self._input_details:
-            return tuple(self._input_details[0]["shape"])
+        if self._backend:
+            return self._backend.input_shape()
         return None

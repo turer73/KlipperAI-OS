@@ -1,0 +1,17 @@
+[Unit]
+Description=KlipperOS-AI Web Dashboard
+After=network.target kos-api.service kos-api.service
+Wants=kos-api.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/klipperos-ai/packages/web
+ExecStart=/usr/bin/node /opt/klipperos-ai/packages/web/node_modules/.bin/next start --port 3470
+Environment=NODE_ENV=production
+Environment=NEXT_PUBLIC_API_URL=http://localhost:8470
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

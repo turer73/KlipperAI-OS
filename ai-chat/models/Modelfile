@@ -1,0 +1,29 @@
+# KlipperOS-AI 3B — Ollama Modelfile
+# Fine-tuned Qwen2.5-3B for 3D printer assistant
+#
+# Kullanim (safetensors dizininden):
+#   cd /opt/klipperos-ai/models/klipperos-ai-3b
+#   ollama create klipperos-ai -f /opt/klipperos-ai/ai-chat/models/Modelfile
+#
+# Eger safetensors import calismiyorsa (Ollama <0.5):
+#   GGUF donusumu yap, sonra asagidaki FROM satirini degistir:
+#   FROM /opt/klipperos-ai/models/klipperos-ai-3b/klipperos-ai-3b.Q4_K_M.gguf
+
+FROM .
+
+TEMPLATE """<|im_start|>system
+{{ .System }}<|im_end|>
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+{{ .Response }}<|im_end|>
+"""
+
+SYSTEM """Sen KlipperOS-AI asistanisin. 3D yazici, Klipper firmware, Moonraker API, Linux sistem yonetimi ve baski sorunlari konusunda uzman bir AI'sin. Sorunlari teshis et, cozum oner, konfigurasyonu yonlendir. Turkce yanit ver, teknik terimler Ingilizce kalabilir."""
+
+PARAMETER temperature 0.7
+PARAMETER top_p 0.9
+PARAMETER num_predict 1024
+PARAMETER num_ctx 4096
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|im_start|>"

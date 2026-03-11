@@ -15,6 +15,7 @@ MONITORED_SERVICES = [
     "crowsnest",
     "KlipperScreen",
     "klipperos-ai-monitor",
+    "kos-bambu-monitor",
     "ollama",
 ]
 
@@ -65,3 +66,48 @@ async def get_services():
             pass
         results.append(ServiceStatus(name=svc, active=active, enabled=enabled))
     return results
+
+
+@router.post("/services/{service_name}/{action}")
+async def toggle_service(service_name: str, action: str):
+    """Servis baslat / durdur / yeniden baslat.
+
+    Sadece beyaz listede olan servislere izin verilir.
+    """
+    ALLOWED = {"kos-bambu-monitor", "crowsnest", "KlipperScreen", "ollama"}
+    if service_name not in ALLOWED:
+        from fastapi import HTTPException
+        raise HTTPException(400, f"'{service_name}' servisi kontrol edilemez")
+
+    if action not in ("start", "stop", "restart"):
+        from fastapi import HTTPException
+        raise HTTPException(400, f"Gecersiz aksiyon: {action}")
+
+    try:
+        r = subprocess.run(
+            ["sudo", "systemctl", action, service_name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        success = r.returncode == 0
+
+        # Kisa bekle — servis durumunu kontrol et
+        import time
+        time.sleep(2)
+
+        r2 = subprocess.run(
+            ["systemctl", "is-active", service_name],
+            capture_output=True, text=True, timeout=5,
+        )
+        is_active = r2.stdout.strip() == "active"
+
+        return {
+            "service": service_name,
+            "action": action,
+            "success": success,
+            "is_active": is_active,
+            "message": f"{service_name} {action} {'basarili' if success else 'basarisiz'}",
+        }
+    except subprocess.TimeoutExpired:
+        return {"service": service_name, "action": action, "success": False, "message": "Zaman asimi"}

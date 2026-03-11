@@ -138,6 +138,34 @@ try:
                     pass  # already dead
                 self._child_pid = None
 
-except ImportError:
-    # VTE3 not available (Windows, headless)
+except (ImportError, ValueError):
+    # VTE3 not available (Windows, headless, or gir1.2-vte-2.91 not installed)
     pass
+
+
+
+
+# --- KlipperScreen Panel Adapter ---
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+from ks_includes.screen_panel import ScreenPanel
+
+class Panel(ScreenPanel):
+    """KlipperScreen adapter for TerminalPanel."""
+    def __init__(self, screen, title):
+        super().__init__(screen, title or PANEL_TITLE)
+        try:
+            self._inner = TerminalPanel()
+            self.content.add(self._inner.build_ui())
+        except Exception as exc:
+            import logging
+            logging.getLogger("KOS").error("Terminal panel init error: %s", exc)
+            err_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            err_box.set_valign(Gtk.Align.CENTER)
+            err_label = Gtk.Label(label="Terminal paneli kullanilamiyor.")
+            err_detail = Gtk.Label(label="Gerekli paket: gir1.2-vte-2.91")
+            err_detail.set_line_wrap(True)
+            err_box.pack_start(err_label, False, False, 10)
+            err_box.pack_start(err_detail, False, False, 5)
+            self.content.add(err_box)

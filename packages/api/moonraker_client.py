@@ -64,14 +64,16 @@ class MoonrakerClient:
             logger.warning("Moonraker GET %s failed: %s", path, exc)
             return None
 
-    def post(self, path: str, body: dict | None = None) -> dict | None:
+    def post(self, path: str, body: dict | None = None,
+             timeout: float | None = None) -> dict | None:
         """POST istegi gonder."""
         url = f"{self.base_url}{path}"
         try:
             payload = json.dumps(body).encode() if body else b""
             req = Request(url, data=payload, method="POST")
             req.add_header("Content-Type", "application/json")
-            with urlopen(req, timeout=self.timeout) as resp:
+            effective_timeout = timeout if timeout is not None else self.timeout
+            with urlopen(req, timeout=effective_timeout) as resp:
                 return json.loads(resp.read().decode())
         except (URLError, OSError, json.JSONDecodeError) as exc:
             logger.warning("Moonraker POST %s failed: %s", path, exc)
@@ -82,15 +84,16 @@ class MoonrakerClient:
 
         Kullanim: client.get_printer_objects("print_stats", "extruder", "heater_bed")
         """
-        query = "&".join(objects)
+        from urllib.parse import quote
+        query = "&".join(quote(obj, safe="=,") for obj in objects)
         resp = self.get(f"/printer/objects/query?{query}")
         if resp and "result" in resp:
             return resp["result"].get("status", {})
         return {}
 
-    def send_gcode(self, script: str) -> bool:
-        """G-code komutu gonder."""
-        resp = self.post("/printer/gcode/script", {"script": script})
+    def send_gcode(self, script: str, timeout: float | None = None) -> bool:
+        """G-code komutu gonder. timeout: saniye (PID icin 600 onerilir)."""
+        resp = self.post("/printer/gcode/script", {"script": script}, timeout=timeout)
         return resp is not None
 
     def is_available(self) -> bool:

@@ -1,0 +1,42 @@
+[Unit]
+Description=KlipperOS-AI Multi-Printer AI Monitor (Klipper + Bambu Lab)
+Documentation=https://github.com/KlipperOS-AI
+After=network.target kos-api.service
+Wants=kos-api.service
+
+[Service]
+Type=simple
+User=klipperos
+Group=klipperos
+WorkingDirectory=/opt/klipperos-ai
+ExecStart=/opt/klipperos-ai/ai-venv/bin/python /opt/klipperos-ai/ai-monitor/multi_printer_monitor.py
+Restart=on-failure
+RestartSec=10
+Environment=PYTHONPATH=/opt/klipperos-ai:/opt/klipperos-ai/ai-monitor
+
+# Opsiyonel: Klipper yazici izleme (env var ile yapilandirilir)
+# Environment=KLIPPER_MOONRAKER_URL=http://127.0.0.1:7125
+# Environment=KLIPPER_CAMERA_URL=http://127.0.0.1:8080/?action=snapshot
+# Environment=KLIPPER_NAME=klipper-1
+# Environment=KLIPPER_CHECK_INTERVAL=10
+
+# Kaynak limitleri — AI model yuklu, biraz daha fazla bellek
+MemoryMax=512M
+CPUQuota=50%
+
+# CPU oncelik — Klipper MCU iletisimi her zaman oncelikli olsun
+Nice=15
+CPUSchedulingPolicy=batch
+CPUWeight=20
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+# Guvenlik
+ProtectSystem=strict
+ReadWritePaths=/var/log/klipperos-ai /etc/klipperos-ai /var/lib/klipperos-ai /tmp
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -20,7 +20,7 @@ def create_access_token(subject: str) -> str:
     payload = {"sub": subject, "exp": expire}
     return jwt.encode(
         payload,
-        settings.jwt_secret or "dev-secret-change-me",
+        settings.jwt_secret,
         algorithm=settings.jwt_algorithm,
     )
 
@@ -33,7 +33,7 @@ def verify_token(
     try:
         payload = jwt.decode(
             token,
-            settings.jwt_secret or "dev-secret-change-me",
+            settings.jwt_secret,
             algorithms=[settings.jwt_algorithm],
         )
         subject: str | None = payload.get("sub")

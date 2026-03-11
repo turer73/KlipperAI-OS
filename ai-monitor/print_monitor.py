@@ -491,7 +491,7 @@ class PrintMonitor:
             self._consecutive_alerts += 1
 
             # Ilk katman grace period — ilk N katman veya M saniyede pause yapma
-            layer_info = self.moonraker.get_layer_info()
+            layer_info = self.moonraker.get_print_layer_info()
             cur_layer = layer_info.get("current_layer", 0) or 0
             elapsed = now - self._print_start_time if self._print_start_time > 0 else 0
 

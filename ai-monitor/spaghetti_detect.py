@@ -42,7 +42,7 @@ CLASS_LABELS = {
 # Tehlike esikleri
 THRESHOLDS = {
     "spaghetti": 0.65,     # %65 guven -> duraklat (v4 dusuruldu)
-    "no_extrusion": 0.60,  # %60 guven -> duraklat (v4 dusuruldu)
+    "no_extrusion": 0.90,  # %90 guven -> duraklat (kamera acisi kompanzasyonu)
     "stringing": 0.75,     # %75 guven -> uyar (v4 dusuruldu)
     "completed": 0.85,     # %85 guven -> tamamlandi bildir
 }
@@ -300,8 +300,8 @@ class SpaghettiDetector:
         action = "none"
         if predicted_class == "spaghetti" and confidence >= self.thresholds.get("spaghetti", 0.7):
             action = "pause"
-        elif predicted_class == "no_extrusion" and confidence >= self.thresholds.get("no_extrusion", 0.75):
-            action = "pause"
+        elif predicted_class == "no_extrusion" and confidence >= self.thresholds.get("no_extrusion", 0.90):
+            action = "notify"  # Kamera acisi yuzunden sadece uyari, otomatik durdurma yok
         elif predicted_class == "stringing" and confidence >= self.thresholds.get("stringing", 0.8):
             action = "notify"
         elif predicted_class == "completed" and confidence >= self.thresholds.get("completed", 0.85):
@@ -315,8 +315,12 @@ class SpaghettiDetector:
             if anomaly_classes:
                 top_anomaly = max(anomaly_classes, key=anomaly_classes.get)
                 top_score = anomaly_classes[top_anomaly]
-                if top_score > 0.30:
-                    action = "pause"
+                if top_score > 0.50:
+                    # v5: sadece spaghetti icin otomatik durdurma
+                    if top_anomaly == "spaghetti":
+                        action = "pause"
+                    else:
+                        action = "notify"  # no_extrusion/stringing -> sadece uyari
                     predicted_class = top_anomaly
                     confidence = top_score
                     logger.warning(

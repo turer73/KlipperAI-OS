@@ -493,8 +493,28 @@ class BambuMQTTClient:
             # Periyodik pushall timer'ını başlat
             self._schedule_pushall()
         else:
-            logger.error("Bambu MQTT bağlantı reddedildi: rc=%d", rc)
+            rc_messages = {
+                1: "Protokol versiyonu desteklenmiyor",
+                2: "Client ID gecersiz",
+                3: "Sunucu kullanilamiyor",
+                4: "Kullanici/sifre hatali",
+                5: "Yetki yok — access_code veya LAN-only modu kontrol edin",
+            }
+            msg = rc_messages.get(rc, f"Bilinmeyen hata")
+            logger.error("Bambu MQTT baglanti reddedildi (rc=%d): %s", rc, msg)
             self._connected = False
+
+            # rc=4,5: Auth hatasi — paho reconnect'i durdur (sureki deneme anlamsiz)
+            if rc in (4, 5):
+                logger.warning(
+                    "Bambu MQTT auth hatasi kalici — otomatik reconnect durduruluyor. "
+                    "Yazicida LAN-only modu aktif mi? Access code dogru mu?"
+                )
+                try:
+                    client.loop_stop()
+                    client.disconnect()
+                except Exception:
+                    pass
 
     def _on_message(self, client, userdata, msg):
         try:

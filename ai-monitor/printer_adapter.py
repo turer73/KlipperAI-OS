@@ -211,6 +211,9 @@ class BambuAdapter(PrinterAdapter):
         "SLICING": "printing",
     }
 
+    # Reconnect cooldown: basarisiz baglanti denemesinden sonra minimum bekleme
+    RECONNECT_COOLDOWN = 60  # saniye
+
     def __init__(
         self,
         hostname: str,
@@ -223,11 +226,36 @@ class BambuAdapter(PrinterAdapter):
         self._serial = serial
         self._name = name
         self._mqtt = None  # Lazy init
+        self._last_connect_attempt: float = 0
+        self._connect_failures: int = 0
 
     def _ensure_mqtt(self):
-        """MQTT client'ı gerektiğinde oluştur ve bağlan."""
+        """MQTT client'ı gerektiğinde oluştur ve bağlan.
+
+        FD sızıntısını önlemek için:
+        - Eski client'ı düzgün disconnect et
+        - Başarısız denemeler arasında cooldown uygula
+        - Cooldown süresini her başarısızlıkta artır (max 5dk)
+        """
         if self._mqtt is not None and self._mqtt.is_connected:
             return
+
+        # Cooldown kontrolü — çok sık bağlantı denemesini engelle
+        now = time.time()
+        cooldown = min(self.RECONNECT_COOLDOWN * (2 ** min(self._connect_failures, 3)), 300)
+        if now - self._last_connect_attempt < cooldown:
+            return
+
+        self._last_connect_attempt = now
+
+        # Eski client'ı temizle (FD sızıntısı önleme)
+        if self._mqtt is not None:
+            try:
+                self._mqtt.disconnect()
+            except Exception:
+                pass
+            self._mqtt = None
+
         try:
             from bambu_client import BambuMQTTClient
         except ImportError:
@@ -238,7 +266,17 @@ class BambuAdapter(PrinterAdapter):
             access_code=self._access_code,
             serial=self._serial,
         )
-        self._mqtt.connect()
+        connected = self._mqtt.connect()
+        if connected:
+            self._connect_failures = 0
+            logger.info("Bambu MQTT baglandi: %s", self._name)
+        else:
+            self._connect_failures += 1
+            cooldown_next = min(self.RECONNECT_COOLDOWN * (2 ** min(self._connect_failures, 3)), 300)
+            logger.warning(
+                "Bambu MQTT baglanti basarisiz (%s), deneme #%d, sonraki deneme: %ds",
+                self._name, self._connect_failures, cooldown_next,
+            )
 
     @property
     def printer_type(self) -> str:

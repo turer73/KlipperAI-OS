@@ -15,13 +15,15 @@ RestartSec=10
 # Environment
 Environment=PYTHONPATH=/opt/klipperos-ai
 Environment=MOONRAKER_URL=http://127.0.0.1:7125
-Environment=CAMERA_URL=http://127.0.0.1:8080/?action=snapshot
+Environment=CAMERA_URL=http://127.0.0.1:8082/?action=snapshot
 Environment=CHECK_INTERVAL=10
 Environment=FLOWGUARD_ENABLED=1
 Environment=PREDICTIVE_MAINT=1
 Environment=BED_LEVEL_CHECK=1
 Environment=ADAPTIVE_PRINT=0
 Environment=AUTORECOVERY_ENABLED=0
+Environment=GRACE_LAYERS=5
+Environment=GRACE_SECONDS=120
 
 # Resource limits
 MemoryMax=512M

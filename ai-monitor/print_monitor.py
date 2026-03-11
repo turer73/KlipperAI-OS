@@ -316,6 +316,9 @@ class PrintMonitor:
         self._maintenance_enabled = os.environ.get("PREDICTIVE_MAINT", "1").lower() not in ("0", "false", "no", "off")
         self._last_maintenance_check = 0.0
         self._print_start_time = 0.0
+        # Ilk katman grace period — AI false-positive onleme
+        self._grace_layers = int(os.environ.get("GRACE_LAYERS", "5"))
+        self._grace_seconds = int(os.environ.get("GRACE_SECONDS", "120"))
 
         # Autonomous Recovery (Phase 4)
         self.recovery_engine = AutonomousRecoveryEngine(
@@ -487,6 +490,19 @@ class PrintMonitor:
         if action == "pause":
             self._consecutive_alerts += 1
 
+            # Ilk katman grace period — ilk N katman veya M saniyede pause yapma
+            layer_info = self.moonraker.get_layer_info()
+            cur_layer = layer_info.get("current_layer", 0) or 0
+            elapsed = now - self._print_start_time if self._print_start_time > 0 else 0
+
+            if cur_layer < self._grace_layers or elapsed < self._grace_seconds:
+                if self._consecutive_alerts == 3:
+                    logger.info(
+                        "Grace period: katman %d/%d, sure %.0fs/%ds — pause atlandi",
+                        cur_layer, self._grace_layers, elapsed, self._grace_seconds,
+                    )
+                return
+
             # Ardi ardina 3 alert olduysa duraklat (false positive azaltma)
             if self._consecutive_alerts >= 3:
                 # Son aksiyon en az 60 saniye onceyse
@@ -631,6 +647,16 @@ class PrintMonitor:
             )
 
         if verdict == FlowVerdict.CRITICAL:
+            # Grace period — ilk katmanlarda FlowGuard CRITICAL atlansın
+            fg_layer = layer_info.get("current_layer", 0) or 0
+            fg_elapsed = time.time() - self._print_start_time if self._print_start_time > 0 else 0
+            if fg_layer < self._grace_layers or fg_elapsed < self._grace_seconds:
+                logger.info(
+                    "FlowGuard CRITICAL grace: katman %d/%d — atlandi",
+                    fg_layer, self._grace_layers,
+                )
+                return
+
             logger.critical(
                 "FlowGuard CRITICAL — Sinyaller: %s, Son OK katman: %d (Z=%.1f)",
                 [s.name for s in signals],

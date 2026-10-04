@@ -2,7 +2,7 @@
 
 > Date: 2026-03-01
 > Version: 1.0.0
-> Author: Zaman Huseyinli
+> Author: turer73
 
 ## Goal
 

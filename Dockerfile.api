@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir --prefix=/install ".[api,ai]"
 # ── Stage 2: Production runtime ──────────────
 FROM python:3.11-slim AS runtime
 
-LABEL maintainer="Zaman Huseyinli"
+LABEL maintainer="turer73"
 LABEL description="KlipperOS-AI FastAPI Backend"
 LABEL version="3.0.0"
 

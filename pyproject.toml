@@ -7,7 +7,7 @@ name = "klipperos-ai"
 version = "3.0.0"
 description = "AI-powered Klipper 3D printer Linux distribution tools"
 readme = "README.md"
-license = {text = "GPL-3.0"}
+license = {text = "AGPL-3.0-only"}
 requires-python = ">=3.11"
 authors = [
     {name = "Zaman Huseyinli"},
